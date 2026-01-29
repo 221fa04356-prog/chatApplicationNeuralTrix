@@ -13,6 +13,26 @@ export default function AdminRegister() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        // Validations
+        const nameRegex = /^[a-zA-Z\s]+$/;
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
+        const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/;
+
+        if (!nameRegex.test(formData.name)) {
+            setError('Full Name must contain only alphabets');
+            return;
+        }
+
+        if (!emailRegex.test(formData.email)) {
+            setError('Please enter a valid email address');
+            return;
+        }
+
+        if (!passwordRegex.test(formData.password)) {
+            setError('Password must be at least 8 characters long and include an uppercase letter, a number, and a special character');
+            return;
+        }
+
         if (formData.password !== formData.confirmPassword) {
             setError('Passwords do not match');
             return;
