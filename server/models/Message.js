@@ -12,6 +12,8 @@ const messageSchema = new mongoose.Schema({
     is_starred: { type: Boolean, default: false },
     is_deleted_by_admin: { type: Boolean, default: false },
     is_flagged: { type: Boolean, default: false },
+    is_read: { type: Boolean, default: false },
+    read_at: { type: Date, default: null },
     created_at: { type: Date, default: Date.now }
 }, {
     toJSON: { virtuals: true },

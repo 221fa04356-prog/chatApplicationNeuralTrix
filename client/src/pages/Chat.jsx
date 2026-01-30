@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { Send, LogOut, CheckCheck } from 'lucide-react';
 import io from 'socket.io-client';
 
-const socket = io('http://localhost:3000'); // Adjust if deployed
+const socket = io('http://localhost:3000');
 
 export default function Chat() {
-    const [users, setUsers] = useState([]);
+    const [users, setUsers] = useState([]); // Now contains { ...user, lastMessage, unreadCount }
     const [selectedUser, setSelectedUser] = useState(null);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -15,40 +15,86 @@ export default function Chat() {
     const navigate = useNavigate();
     const bottomRef = useRef(null);
 
+    // 1. Join Room once
+    useEffect(() => {
+        if (user.id) {
+            socket.emit('join_room', user.id);
+        }
+    }, [user.id]);
+
+    // 2. Chat Logic & Socket Listeners
     useEffect(() => {
         if (!user.id) {
             navigate('/');
             return;
         }
 
-        // Join my own room
-        socket.emit('join_room', user.id);
-
-        // Fetch Users
         fetchUsers();
 
-        // Listen for incoming messages
         socket.on('receive_message', (data) => {
-            // Only add if chatting with the sender OR if I want to update unread counts (not implemented yet)
-            setMessages(prev => {
-                // If I am chatting with the sender, append
-                if (selectedUser && data.sender_id === selectedUser._id) {
-                    return [...prev, { ...data, role: 'user', created_at: new Date() }];
-                }
-                return prev;
-            });
+            const senderId = data.sender_id || data.user_id;
+
+            // 1. If chatting with sender, append message and mark as read immediately
+            if (selectedUser && senderId === selectedUser._id) {
+                setMessages(prev => [...prev, { ...data, role: 'user', created_at: new Date() }]);
+                markAsRead(senderId);
+            } else {
+                // 2. If NOT chatting with sender, update Sidebar info (unread count + last msg)
+                setUsers(prevUsers => prevUsers.map(u => {
+                    if (u._id === senderId) {
+                        return {
+                            ...u,
+                            unreadCount: (u.unreadCount || 0) + 1,
+                            lastMessage: {
+                                content: data.content,
+                                created_at: new Date(),
+                                type: data.type
+                            }
+                        };
+                    }
+                    return u;
+                }));
+            }
+        });
+
+        // Listen for Read Receipts
+        socket.on('messages_read', (data) => {
+            // data: { reader_id, read_at }
+            if (selectedUser && data.reader_id === selectedUser._id) {
+                setMessages(prev => prev.map(msg => {
+                    const isMyMsg = (msg.sender_id === user.id) || (msg.user_id === user.id);
+                    if (isMyMsg && !msg.is_read) {
+                        return { ...msg, is_read: true, read_at: data.read_at };
+                    }
+                    return msg;
+                }));
+            }
         });
 
         return () => {
             socket.off('receive_message');
+            socket.off('messages_read');
         };
-    }, [selectedUser]); // Dependency on selectedUser to know context
+    }, [selectedUser]); // selectedUser is a dependency for the socket listener scope
 
     const fetchUsers = async () => {
         try {
-            const res = await axios.get('/api/chat/users');
-            // Filter out self
-            setUsers(res.data.filter(u => u._id !== user.id));
+            // Pass currentUserId to get metadata
+            const res = await axios.get(`/api/chat/users?currentUserId=${user.id}`);
+            setUsers(res.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const markAsRead = async (senderId) => {
+        try {
+            await axios.post('/api/chat/messages/mark-read', {
+                userId: user.id,
+                senderId: senderId
+            });
+            // Reset local count
+            setUsers(prev => prev.map(u => u._id === senderId ? { ...u, unreadCount: 0 } : u));
         } catch (err) {
             console.error(err);
         }
@@ -67,6 +113,10 @@ export default function Chat() {
     const handleUserSelect = (u) => {
         setSelectedUser(u);
         fetchP2PRequest(u._id);
+        // Mark as read when opening chat
+        if (u.unreadCount > 0) {
+            markAsRead(u._id);
+        }
     };
 
     const handleSend = async (e) => {
@@ -75,19 +125,32 @@ export default function Chat() {
 
         const tempMsg = {
             id: Date.now(),
-            sender_id: user.id, // Display purpose
+            sender_id: user.id,
             receiver_id: selectedUser._id,
-            role: 'user', // visual style
+            role: 'user',
             content: input,
             type: 'text',
             created_at: new Date()
         };
 
-        // Optimistic Update
         setMessages(prev => [...prev, tempMsg]);
         setInput('');
 
-        // Socket Emit
+        // Update MY sidebar for THIS user to show the latest message I just sent
+        setUsers(prev => prev.map(u => {
+            if (u._id === selectedUser._id) {
+                return {
+                    ...u,
+                    lastMessage: {
+                        content: input,
+                        created_at: new Date(),
+                        type: 'text'
+                    }
+                };
+            }
+            return u;
+        }));
+
         socket.emit('send_message', {
             sender_id: user.id,
             receiverId: selectedUser._id,
@@ -96,7 +159,6 @@ export default function Chat() {
             role: 'user'
         });
 
-        // Save to DB
         try {
             await axios.post('/api/chat/send', {
                 userId: user.id,
@@ -111,13 +173,20 @@ export default function Chat() {
     const logout = () => {
         localStorage.removeItem('user');
         window.dispatchEvent(new Event('authChange'));
-        window.location.href = '/'; // Hard reload to prevent blank screen
+        window.location.href = '/';
+    };
+
+    // Helper to format time
+    const formatTime = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     return (
         <div style={{ display: 'flex', height: '100vh', background: '#f3f4f6' }}>
             {/* Sidebar */}
-            <div style={{ width: '300px', background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ width: '320px', background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '1rem', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h3 style={{ margin: 0, color: 'var(--primary)' }}>Contacts</h3>
                     <button className="btn-secondary" style={{ padding: '0.4rem' }} onClick={logout} title="Logout">
@@ -133,11 +202,52 @@ export default function Chat() {
                                 padding: '1rem',
                                 borderBottom: '1px solid #f3f4f6',
                                 cursor: 'pointer',
-                                background: selectedUser?._id === u._id ? '#eef2ff' : 'white'
+                                background: selectedUser?._id === u._id ? '#eef2ff' : 'white',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
                             }}
                         >
-                            <div style={{ fontWeight: 'bold' }}>{u.name}</div>
-                            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{u.email}</div>
+                            <div style={{ overflow: 'hidden', flex: 1, marginRight: '0.5rem' }}>
+                                <div style={{ fontWeight: 'bold' }}>{u.name}</div>
+                                <div style={{
+                                    fontSize: '0.8rem',
+                                    color: '#6b7280',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                }}>
+                                    {u.unreadCount > 0 ? (
+                                        <span style={{ fontWeight: 'bold', color: '#374151' }}>
+                                            {u.lastMessage?.type === 'image' ? '📷 Image' : (u.lastMessage?.content || 'No messages')}
+                                        </span>
+                                    ) : (
+                                        <span>{u.lastMessage?.type === 'image' ? '📷 Image' : (u.lastMessage?.content || u.email)}</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: '50px' }}>
+                                <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.3rem' }}>
+                                    {formatTime(u.lastMessage?.created_at)}
+                                </div>
+                                {u.unreadCount > 0 && (
+                                    <div style={{
+                                        background: 'var(--primary, #6366f1)',
+                                        color: 'white',
+                                        borderRadius: '50%',
+                                        width: '20px',
+                                        height: '20px',
+                                        fontSize: '0.7rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {u.unreadCount}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -147,19 +257,15 @@ export default function Chat() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                 {selectedUser ? (
                     <>
-                        {/* Header */}
                         <div style={{ padding: '1rem', background: 'white', borderBottom: '1px solid #e5e7eb', fontWeight: 'bold' }}>
                             {selectedUser.name}
                         </div>
-
-                        {/* Messages */}
                         <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 {messages.map((msg, idx) => {
-                                    // Identify if I sent it
                                     const isMe = (msg.sender_id === user.id) || (msg.user_id === user.id);
                                     return (
-                                        <div key={idx} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
+                                        <div key={idx} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
                                             <div style={{
                                                 padding: '1rem',
                                                 borderRadius: '1rem',
@@ -171,8 +277,26 @@ export default function Chat() {
                                             }}>
                                                 {msg.content}
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem', textAlign: isMe ? 'right' : 'left' }}>
-                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                {/* Timestamp */}
+                                                <span>{formatTime(msg.created_at)}</span>
+
+                                                {/* Receipt Status (Only for Me) */}
+                                                {isMe && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                        {msg.is_read ? (
+                                                            <>
+                                                                <CheckCheck size={14} color="#3b82f6" /> {/* Blue Double Tick */}
+                                                                <span style={{ fontSize: '0.65rem' }}>Read {formatTime(msg.read_at)}</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <CheckCheck size={14} color="#9ca3af" /> {/* Grey Double Tick (Delivered) */}
+                                                                <span style={{ fontSize: '0.65rem' }}>Delivered {formatTime(msg.created_at)}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -180,8 +304,6 @@ export default function Chat() {
                                 <div ref={bottomRef} />
                             </div>
                         </div>
-
-                        {/* Input */}
                         <div style={{ padding: '1rem', background: 'white', borderTop: '1px solid #e5e7eb' }}>
                             <form onSubmit={handleSend} style={{ display: 'flex', gap: '1rem' }}>
                                 <input
