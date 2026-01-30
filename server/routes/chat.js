@@ -71,12 +71,69 @@ router.get('/history/:userId', async (req, res) => {
 });
 
 // Get All Users (for Contacts)
+// Get All Users (with Last Message & Unread Count)
 router.get('/users', async (req, res) => {
     try {
-        // Exclude current user if passed in query, or just return all and filter on client
-        // Better to filter on client or pass ?currentUserId=...
+        const currentUserId = req.query.currentUserId;
+        // Fetch all approved users
         const users = await User.find({ status: 'approved' }).select('name email _id');
-        res.json(users);
+
+        if (!currentUserId) {
+            return res.json(users);
+        }
+
+        // Enhance with metadata
+        const enhancedUsers = await Promise.all(users.map(async (u) => {
+            if (u._id.toString() === currentUserId) return null; // Skip self
+
+            // 1. Get Last Message
+            const lastMsg = await Message.findOne({
+                $or: [
+                    { user_id: currentUserId, receiver_id: u._id },
+                    { user_id: u._id, receiver_id: currentUserId }
+                ]
+            }).sort({ created_at: -1 }).select('content created_at type sender_id');
+
+            // 2. Get Unread Count (Messages sent BY u TO me)
+            const unreadCount = await Message.countDocuments({
+                user_id: u._id,
+                receiver_id: currentUserId,
+                is_read: false
+            });
+
+            return {
+                ...u.toObject(),
+                lastMessage: lastMsg,
+                unreadCount
+            };
+        }));
+
+        res.json(enhancedUsers.filter(u => u !== null));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Mark messages as read
+router.post('/messages/mark-read', async (req, res) => {
+    const { userId, senderId } = req.body;
+    try {
+        const readAt = new Date();
+        await Message.updateMany(
+            { user_id: senderId, receiver_id: userId, is_read: false },
+            { is_read: true, read_at: readAt }
+        );
+
+        // Notify the sender that their messages were read
+        // userId is 'me' (reader), senderId is 'them' (sender who needs to know)
+        if (req.io) {
+            req.io.to(senderId).emit('messages_read', {
+                reader_id: userId,
+                read_at: readAt
+            });
+        }
+
+        res.json({ status: 'success' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
