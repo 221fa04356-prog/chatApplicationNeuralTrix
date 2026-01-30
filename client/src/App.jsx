@@ -6,6 +6,7 @@ import AdminRegister from './pages/AdminRegister';
 import AdminReset from './pages/AdminReset';
 import AdminDashboard from './pages/AdminDashboard';
 import Chat from './pages/Chat';
+import AIChatWidget from './components/AIChatWidget';
 import './styles/index.css';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
+      <AIChatWidget />
     </BrowserRouter>
   );
 }

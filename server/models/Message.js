@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
     user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { type: String, required: true }, // 'user' or 'ai'
+    receiver_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // Added for P2P
+    role: { type: String, required: true }, // 'user', 'ai' (model)
     content: { type: String },
     type: { type: String, enum: ['text', 'image', 'file'], default: 'text' },
     file_path: { type: String },

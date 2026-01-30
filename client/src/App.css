@@ -40,3 +40,8 @@
 .read-the-docs {
   color: #888;
 }
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
