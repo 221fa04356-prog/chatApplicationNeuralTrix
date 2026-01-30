@@ -32,14 +32,10 @@ export default function Home() {
             const user = res.data.user;
 
             localStorage.setItem('user', JSON.stringify(user));
+            localStorage.setItem('user', JSON.stringify(user));
 
-            if (isAdmin) {
-                if (user.role === 'admin') navigate('/admin');
-                else setError('Access denied: You are not an admin');
-            } else {
-                if (user.role === 'user') navigate('/chat');
-                else navigate('/admin');
-            }
+            // Force reload to ensure socket and state are clean, which fixes the blank screen issue
+            window.location.href = isAdmin && user.role === 'admin' ? '/admin' : '/chat';
         } catch (err) {
             setError(err.response?.data?.error || 'Login failed');
         }

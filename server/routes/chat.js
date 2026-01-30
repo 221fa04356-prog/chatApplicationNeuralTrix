@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const Message = require('../models/Message');
+const User = require('../models/User'); // Import User model
 const Groq = require('groq-sdk');
 const pdf = require('pdf-parse');
 const mammoth = require('mammoth');
@@ -54,12 +55,45 @@ const upload = multer({
     }
 });
 
-// Get Chat History
+// Get Chat History (AI Chat)
 router.get('/history/:userId', async (req, res) => {
     try {
-        const messages = await Message.find({ user_id: req.params.userId })
+        const messages = await Message.find({
+            user_id: req.params.userId,
+            receiver_id: null // Only AI messages
+        })
             .sort({ created_at: 1 })
             .populate('reply_to', 'content type file_path role');
+        res.json(messages);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get All Users (for Contacts)
+router.get('/users', async (req, res) => {
+    try {
+        // Exclude current user if passed in query, or just return all and filter on client
+        // Better to filter on client or pass ?currentUserId=...
+        const users = await User.find({ status: 'approved' }).select('name email _id');
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get P2P Chat History
+router.get('/p2p/:userId/:otherUserId', async (req, res) => {
+    try {
+        const { userId, otherUserId } = req.params;
+        const messages = await Message.find({
+            $or: [
+                { user_id: userId, receiver_id: otherUserId },
+                { user_id: otherUserId, receiver_id: userId }
+            ]
+        })
+            .sort({ created_at: 1 })
+            .populate('reply_to', 'content type file_path');
         res.json(messages);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -75,7 +109,7 @@ router.post('/send', (req, res, next) => {
         next();
     });
 }, async (req, res) => {
-    const { userId, content, replyTo } = req.body;
+    const { userId, content, replyTo, toUserId } = req.body;
     const file = req.file;
 
     if (!userId) return res.status(400).json({ error: 'User ID required' });
@@ -92,15 +126,33 @@ router.post('/send', (req, res, next) => {
         // Check for unprofessional content
         const isFlagged = content && badWords.some(word => content.toLowerCase().includes(word));
 
-        // Save User Message
+        // If toUserId is present -> P2P Message
+        if (toUserId) {
+            const msg = await Message.create({
+                user_id: userId,
+                receiver_id: toUserId,
+                role: 'user',
+                content: content || '',
+                type,
+                file_path: filePath,
+                reply_to: replyTo || null,
+                is_flagged: !!isFlagged // Force boolean
+            });
+            return res.json({ status: 'sent', message: msg });
+        }
+
+        // --- AI LOGIC BELOW (Only if no toUserId) ---
+
+        // Save User Message (for AI chat)
         await Message.create({
             user_id: userId,
+            receiver_id: null,
             role: 'user',
             content: content || '',
             type,
             file_path: filePath,
             reply_to: replyTo || null,
-            is_flagged: isFlagged
+            is_flagged: !!isFlagged // Force boolean
         });
 
         // Prepare context for AI
@@ -214,6 +266,7 @@ router.post('/send', (req, res, next) => {
         // Save AI Response
         await Message.create({
             user_id: userId,
+            receiver_id: null,
             role: 'model',
             content: aiContent,
             type: 'text'
@@ -228,6 +281,7 @@ router.post('/send', (req, res, next) => {
             const errorMsg = "Sorry, I encountered an error processing that. (" + (aiErr.error?.message || aiErr.message) + ")";
             await Message.create({
                 user_id: userId,
+                receiver_id: null,
                 role: 'model',
                 content: errorMsg,
                 type: 'text'
