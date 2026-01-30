@@ -218,6 +218,7 @@ export default function AIChatWidget() {
                             type="file"
                             ref={fileInputRef}
                             style={{ display: 'none' }}
+                            accept=".jpg,.jpeg,.png,.doc,.docx"
                             onChange={(e) => setFile(e.target.files[0])}
                         />
                         {file && <span className="file-badge">{file.name}</span>}

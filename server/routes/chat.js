@@ -38,19 +38,18 @@ const upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
         const allowedTypes = [
-            'image/jpeg', 'image/png', 'image/gif', 'image/webp', // Images
-            'application/pdf', // PDF
-            'application/msword', // .doc
+            'image/jpeg', 'image/png', // Images
+            'application/pdf',         // PDF
+            'application/msword',      // .doc
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' // .docx
         ];
-        // Check mime type and extension
         const ext = path.extname(file.originalname).toLowerCase();
-        const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.doc', '.docx'];
+        const allowedExts = ['.jpg', '.jpeg', '.png', '.doc', '.docx', '.pdf'];
 
         if (allowedTypes.includes(file.mimetype) && allowedExts.includes(ext)) {
             cb(null, true);
         } else {
-            cb(new Error('Invalid file type. Only Images, PDF, and Word files are allowed.'));
+            cb(new Error('Invalid file type. Only JPG, PNG, PDF, and Word files are allowed.'));
         }
     }
 });
@@ -172,11 +171,29 @@ router.post('/send', (req, res, next) => {
     if (!userId) return res.status(400).json({ error: 'User ID required' });
 
     // Determine type
+    // Determine type and metadata
     let type = 'text';
     let filePath = null;
+    let fileName = null;
+    let fileSize = 0;
+    let pageCount = 0;
+
     if (file) {
         type = file.mimetype.startsWith('image/') ? 'image' : 'file';
         filePath = '/uploads/' + file.filename;
+        fileName = file.originalname;
+        fileSize = file.size;
+
+        // Try to get page count for PDFs
+        if (file.mimetype === 'application/pdf') {
+            try {
+                const dataBuffer = fs.readFileSync(path.join(__dirname, '../uploads', file.filename));
+                const data = await pdf(dataBuffer);
+                pageCount = data.numpages;
+            } catch (e) {
+                console.error("PDF Page Count Failed", e);
+            }
+        }
     }
 
     try {
@@ -192,6 +209,9 @@ router.post('/send', (req, res, next) => {
                 content: content || '',
                 type,
                 file_path: filePath,
+                fileName,
+                fileSize,
+                pageCount,
                 reply_to: replyTo || null,
                 is_flagged: !!isFlagged // Force boolean
             });
@@ -208,6 +228,9 @@ router.post('/send', (req, res, next) => {
             content: content || '',
             type,
             file_path: filePath,
+            fileName,
+            fileSize,
+            pageCount,
             reply_to: replyTo || null,
             is_flagged: !!isFlagged // Force boolean
         });
