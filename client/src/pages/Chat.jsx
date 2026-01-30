@@ -302,18 +302,18 @@ export default function Chat() {
                     <input
                         type="file"
                         ref={fileInputRef}
-                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx"
+                        accept=".jpg,.jpeg,.png,.gif,.webp,.doc,.docx"
                         onChange={(e) => {
                             const selected = e.target.files[0];
                             if (!selected) return;
 
-                            const allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx'];
+                            const allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'doc', 'docx'];
                             const ext = selected.name.split('.').pop().toLowerCase();
 
                             if (allowedExts.includes(ext)) {
                                 setFile(selected);
                             } else {
-                                alert('Invalid file type. Only Images, PDF, and Word files are allowed.');
+                                alert('This file format is not supported.\n\nSupported formats: .jpg, .jpeg, .png, .gif, .webp, .doc, .docx');
                                 e.target.value = null; // Clear input
                                 setFile(null);
                             }
