@@ -5,6 +5,13 @@ const path = require('path');
 const Message = require('../models/Message');
 const Groq = require('groq-sdk');
 const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+let pdfImgConvert;
+try {
+    pdfImgConvert = require('pdf-img-convert');
+} catch (e) {
+    console.error("Warning: pdf-img-convert not found. PDF image features will be disabled.", e.message);
+}
 const fs = require('fs');
 // const Filter = require('bad-words');
 // const filter = new Filter();
@@ -123,26 +130,72 @@ router.post('/send', (req, res, next) => {
             aiContent = chatCompletion.choices[0]?.message?.content || "Image processed.";
 
         }
-        // 2. Handle PDFs (Text Extraction + Text Model)
+        // 2. Handle PDFs - REMOVED AS REQUESTED
         else if (type === 'file' && file.mimetype === 'application/pdf') {
-            const pdfPath = path.join(__dirname, '../uploads', file.filename);
-            const dataBuffer = fs.readFileSync(pdfPath);
+            aiContent = "The file format is not supported.";
+        }
+        // 3. Handle Word Documents (DOCX) - Text + Embedded Images
+        else if (type === 'file' && file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            const docPath = path.join(__dirname, '../uploads', file.filename);
             try {
-                const data = await pdf(dataBuffer);
-                const pdfText = data.text.substring(0, 6000); // Limit context window
-                messages = [
-                    { role: "system", content: "You are a helpful assistant. Analyze the document content provided." },
-                    { role: "user", content: `${content || "Analyze this document"}\n\nDocument Content:\n${pdfText}` }
-                ];
+                // Convert to HTML to extract base64 images easily
+                const result = await mammoth.convertToHtml({ path: docPath });
+                const html = result.value || "";
+                const rawText = result.messages.map(m => m.message).join("\n") + "\n" + (await mammoth.extractRawText({ path: docPath })).value;
 
-                const chatCompletion = await groq.chat.completions.create({
-                    messages: messages,
-                    model: "llama-3.3-70b-versatile",
-                });
-                aiContent = chatCompletion.choices[0]?.message?.content || "Document analyzed.";
-            } catch (pdfErr) {
-                console.error("PDF Parse Error:", pdfErr);
-                aiContent = "I received the PDF, but couldn't read its text. It might be scanned or encrypted.";
+                // Extract base64 images from HTML
+                const imgRegex = /src="data:image\/([a-zA-Z]+);base64,([^"]+)"/g;
+                let match;
+                let extractedImages = [];
+
+                while ((match = imgRegex.exec(html)) !== null) {
+                    if (extractedImages.length < 3) { // Limit to 3 images
+                        extractedImages.push({ type: match[1], data: match[2] });
+                    }
+                }
+
+                if (extractedImages.length > 0) {
+                    // Vision Request
+                    let contentPayload = [
+                        { type: "text", text: content || "Analyze this Word document with its images." }
+                    ];
+                    const trimmedText = rawText.substring(0, 5000);
+                    if (trimmedText) contentPayload.push({ type: "text", text: `\n\nDocument Text:\n${trimmedText}` });
+
+                    extractedImages.forEach(img => {
+                        contentPayload.push({
+                            type: "image_url",
+                            image_url: { url: `data:image/${img.type};base64,${img.data}` }
+                        });
+                    });
+
+                    messages = [{ role: "user", content: contentPayload }];
+                    const chatCompletion = await groq.chat.completions.create({
+                        messages: messages,
+                        model: "meta-llama/llama-4-maverick-17b-128e-instruct",
+                    });
+                    aiContent = chatCompletion.choices[0]?.message?.content || "Word document analyzed (Vision).";
+
+                } else {
+                    // Text Only Fallback
+                    const docText = (await mammoth.extractRawText({ path: docPath })).value.trim().substring(0, 10000);
+                    if (!docText || docText.length < 5) {
+                        aiContent = "The Word document appears empty.";
+                    } else {
+                        messages = [
+                            { role: "system", content: "You are a helpful assistant. Analyze the document." },
+                            { role: "user", content: `${content || "Analyze this"}\n\nContent:\n${docText}` }
+                        ];
+                        const chatCompletion = await groq.chat.completions.create({
+                            messages: messages,
+                            model: "llama-3.3-70b-versatile",
+                        });
+                        aiContent = chatCompletion.choices[0]?.message?.content || "Document analyzed.";
+                    }
+                }
+            } catch (docErr) {
+                console.error("DOCX Parse Error:", docErr);
+                aiContent = "Error reading the Word document.";
             }
         }
         // 3. Handle Regular Text

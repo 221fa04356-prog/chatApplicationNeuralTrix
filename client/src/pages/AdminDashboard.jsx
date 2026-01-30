@@ -53,8 +53,15 @@ export default function AdminDashboard() {
         const confirmPassword = confirmPassRe[userId];
         const loginId = loginIds[userId];
 
+        // Validation Regex
+        const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/;
+
         if (!password || !loginId) return alert('Please enter both Login ID and Password');
         if (password !== confirmPassword) return alert('Passwords do not match');
+
+        if (!passwordRegex.test(password)) {
+            return alert('Password must be at least 8 characters long and include an uppercase letter, a number, and a special character');
+        }
 
         try {
             await axios.post('/api/admin/approve', { userId, loginId, password });
@@ -73,8 +80,16 @@ export default function AdminDashboard() {
         const newPassword = confirmPass[`reset-${requestId}`];
         const confirmPassword = confirmPassRe[`reset-${requestId}`];
 
+         // Validation Regex
+        const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/;
+
         if (!newPassword) return alert('Please enter a new password');
         if (newPassword !== confirmPassword) return alert('Passwords do not match');
+
+        if (!passwordRegex.test(newPassword)) {
+            return alert('Password must be at least 8 characters long and include an uppercase letter, a number, and a special character');
+        }
+
         try {
             await axios.post('/api/admin/reset-password', { requestId, userId, newPassword });
             alert('Password reset successful');
