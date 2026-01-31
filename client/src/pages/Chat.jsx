@@ -32,12 +32,35 @@ export default function Chat() {
 
     const [userData, setUserData] = useState(user); // For Profile Display
 
-    // 1. Join Room once
+    const scrollToBottom = (force = false) => {
+        if (!bottomRef.current) return;
+        const container = bottomRef.current.parentElement;
+        if (!container) return;
+
+        const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 150;
+        if (force || isNearBottom) {
+            setTimeout(() => {
+                bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 50);
+        }
+    };
+
+    // 1. Initial Load: Join Room and Fetch Users
     useEffect(() => {
         if (user.id) {
             socket.emit('join_room', user.id);
+            fetchUsers();
         }
     }, [user.id]);
+
+    useEffect(() => {
+        if (messages.length > 0) {
+            // Check if last message is from me
+            const lastMsg = messages[messages.length - 1];
+            const isMe = lastMsg && ((lastMsg.sender_id === user.id) || (lastMsg.user_id === user.id));
+            scrollToBottom(isMe);
+        }
+    }, [messages]);
 
     // 2. Chat Logic & Socket Listeners
     useEffect(() => {
@@ -45,8 +68,6 @@ export default function Chat() {
             navigate('/');
             return;
         }
-
-        fetchUsers();
 
         socket.on('receive_message', (data) => {
             const senderId = data.sender_id || data.user_id;
@@ -95,13 +116,13 @@ export default function Chat() {
             const res = await axios.get(`/api/chat/users?currentUserId=${user.id}`);
             setUsers(res.data);
 
-            // Restore active chat from localStorage if available
+            // Restore active chat from localStorage only if no chat is currently open
             const lastActiveChatId = localStorage.getItem('lastActiveChat');
-            if (lastActiveChatId) {
+            if (lastActiveChatId && !selectedUser) {
                 const foundUser = res.data.find(u => u._id === lastActiveChatId);
                 if (foundUser) {
                     setSelectedUser(foundUser);
-                    fetchP2PRequest(foundUser._id);
+                    fetchP2PRequest(foundUser._id, true);
                 }
             }
         } catch (err) {
@@ -116,18 +137,23 @@ export default function Chat() {
         } catch (err) { console.error(err); }
     };
 
-    const fetchP2PRequest = async (otherId) => {
+    const fetchP2PRequest = async (otherId, forceScroll = false) => {
         try {
             const res = await axios.get(`/api/chat/p2p/${user.id}/${otherId}`);
             setMessages(res.data);
-            setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            if (forceScroll) {
+                // For switching users, we always want to jump to bottom immediately
+                setTimeout(() => {
+                    bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+                }, 100);
+            }
         } catch (err) { console.error(err); }
     };
 
     const handleUserSelect = (u) => {
         setSelectedUser(u);
         localStorage.setItem('lastActiveChat', u._id); // Persist chat
-        fetchP2PRequest(u._id);
+        fetchP2PRequest(u._id, true); // Force scroll on user selection
         if (u.unreadCount > 0) markAsRead(u._id);
     };
 
