@@ -4,10 +4,13 @@ const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const PasswordReset = require('../models/PasswordReset');
 const sendEmail = require('../utils/emailService');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'neural_secret_77';
 
 // Register
 router.post('/register', async (req, res) => {
-    const { name, email, mobile } = req.body;
+    const { name, email, mobile, designation } = req.body;
 
     if (!name || !email || !mobile) {
         return res.status(400).json({ error: 'All fields are required' });
@@ -30,7 +33,7 @@ router.post('/register', async (req, res) => {
         }
 
         // Insert as pending
-        await User.create({ name, email, mobile, status: 'pending' });
+        await User.create({ name, email, mobile, designation, status: 'pending' });
 
         // Email Admin
         const adminEmail = process.env.ADMIN_EMAIL;
@@ -39,6 +42,7 @@ router.post('/register', async (req, res) => {
             const html = `
                 <h3>New User Registration</h3>
                 <p><strong>Name:</strong> ${name}</p>
+                <p><strong>Job Position:</strong> ${designation || 'N/A'}</p>
                 <p><strong>Email:</strong> ${email}</p>
                 <p><strong>Mobile:</strong> ${mobile}</p>
                 <p>Please login to the admin dashboard to approve this user.</p>
@@ -74,7 +78,16 @@ router.post('/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password);
         if (!match) return res.status(400).json({ error: 'Invalid credentials' });
 
-        res.json({ user: { id: user.id, name: user.name, role: user.role, email: user.email, login_id: user.login_id } });
+        const token = jwt.sign(
+            { id: user.id, role: user.role, name: user.name },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            token,
+            user: { id: user.id, name: user.name, role: user.role, email: user.email, login_id: user.login_id }
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

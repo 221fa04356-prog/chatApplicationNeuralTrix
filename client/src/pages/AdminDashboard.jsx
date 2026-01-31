@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { Users, UserCheck, Trash2, MessageSquare, Key, LogOut, Eye, EyeOff, Menu, AlertTriangle } from 'lucide-react';
 
 export default function AdminDashboard() {
-    const [activeTab, setActiveTab] = useState(localStorage.getItem('adminActiveTab') || 'pending');
+    const [activeTab, setActiveTab] = useState(sessionStorage.getItem('adminActiveTab') || 'pending');
 
     useEffect(() => {
-        localStorage.setItem('adminActiveTab', activeTab);
+        sessionStorage.setItem('adminActiveTab', activeTab);
     }, [activeTab]);
     const [users, setUsers] = useState([]);
     const [resets, setResets] = useState([]);
@@ -31,6 +31,10 @@ export default function AdminDashboard() {
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedMsgs, setSelectedMsgs] = useState([]);
 
+    // Flag Alert State
+    const [showFlagAlert, setShowFlagAlert] = useState(false);
+    const [highRiskUsers, setHighRiskUsers] = useState([]);
+
     // Sidebar State
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -48,6 +52,13 @@ export default function AdminDashboard() {
             ]);
             setUsers(uRes.data);
             setResets(rRes.data);
+
+            // Check for high risk users (flags > 3)
+            const risky = uRes.data.filter(u => u.flaggedCount > 3);
+            if (risky.length > 0) {
+                setHighRiskUsers(risky);
+                setShowFlagAlert(true);
+            }
         } catch (err) {
             console.error(err);
         }
@@ -291,7 +302,7 @@ export default function AdminDashboard() {
     };
 
     const logout = () => {
-        localStorage.removeItem('user');
+        sessionStorage.clear();
         navigate('/');
     };
 
@@ -395,7 +406,13 @@ export default function AdminDashboard() {
                                         <span style={{ background: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>#{index + 1}</span>
                                         <strong>{u.name}</strong>
                                     </div>
-                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email} | {u.mobile}</span> <br />
+                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>
+                                        {u.email} | {u.mobile} |
+                                        <span style={{ fontWeight: 600, color: '#4b5563' }}>
+                                            {u.designation || 'N/A'}
+                                        </span>
+                                    </span>
+                                    <br />
                                     <span style={{ color: 'var(--primary)', fontSize: '0.8rem', fontWeight: '500' }}>Requested: {formatDate(u.created_at)}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -450,7 +467,12 @@ export default function AdminDashboard() {
                             <div key={u.id} className="card" style={{ maxWidth: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <strong>{u.name}</strong> <br />
-                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email}</span>
+                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>
+                                        {u.email} | {u.mobile} |
+                                        <span style={{ fontWeight: 600 }}>
+                                            {u.designation || 'N/A'}
+                                        </span>
+                                    </span>
                                     {u.flaggedCount > 0 && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#f59e0b', fontSize: '0.85rem', marginTop: '0.25rem', fontWeight: 600 }}>
                                             <AlertTriangle size={14} /> Warning: {u.flaggedCount} flagged messages
@@ -700,6 +722,34 @@ export default function AdminDashboard() {
                     </div>
                 )
             }
+            {/* High Risk Alert Modal */}
+            {showFlagAlert && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000
+                }}>
+                    <div style={{ background: 'white', padding: '2rem', borderRadius: '0.5rem', width: '90%', maxWidth: '500px', textAlign: 'center' }}>
+                        <div style={{ marginBottom: '1rem', color: '#ef4444' }}>
+                            <AlertTriangle size={48} style={{ margin: '0 auto' }} />
+                        </div>
+                        <h2 style={{ color: '#b91c1c', marginBottom: '1rem' }}>Critical Attention Required</h2>
+                        <p style={{ marginBottom: '1.5rem', color: '#374151' }}>
+                            The following users have been flagged for unethical behavior more than 3 times:
+                        </p>
+                        <ul style={{ textAlign: 'left', background: '#fee2e2', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem', listStyle: 'none' }}>
+                            {highRiskUsers.map(u => (
+                                <li key={u.id} style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#991b1b', display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>{u.name}</span>
+                                    <span>{u.flaggedCount} flags</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <button className="btn-primary" onClick={() => setShowFlagAlert(false)} style={{ width: '100%' }}>
+                            Acknowledge
+                        </button>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
