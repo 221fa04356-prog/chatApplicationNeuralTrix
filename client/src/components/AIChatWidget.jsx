@@ -22,11 +22,11 @@ export default function AIChatWidget() {
 
     // Auth context (simulated check)
     // Auth State
-    const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || '{}'));
+    const [user, setUser] = useState(JSON.parse(sessionStorage.getItem('user') || '{}'));
 
     useEffect(() => {
         const handleAuthChange = () => {
-            setUser(JSON.parse(localStorage.getItem('user') || '{}'));
+            setUser(JSON.parse(sessionStorage.getItem('user') || '{}'));
         };
         window.addEventListener('authChange', handleAuthChange);
         return () => window.removeEventListener('authChange', handleAuthChange);

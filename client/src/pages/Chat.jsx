@@ -10,16 +10,28 @@ import io from 'socket.io-client';
 import '../styles/Chat.css';
 
 // --- Socket Link ---
-const socket = io('http://localhost:3000');
+const socket = io('http://localhost:3000', {
+    auth: {
+        token: localStorage.getItem('token')
+    }
+});
+// The global socket instance is removed as per the diff, and a local one is created in useEffect.
+// const socket = io('http://localhost:3000', {
+//     auth: {
+//         token: localStorage.getItem('token')
+//     }
+// });
 
 export default function Chat() {
     const [users, setUsers] = useState([]);
     const [selectedUser, setSelectedUser] = useState(null);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const [user] = useState(JSON.parse(sessionStorage.getItem('user') || '{}'));
+    const [token] = useState(sessionStorage.getItem('token'));
     const navigate = useNavigate();
     const bottomRef = useRef(null);
+    const socketRef = useRef(null);
 
     // --- File Upload State ---
     const [file, setFile] = useState(null);
@@ -31,6 +43,11 @@ export default function Chat() {
     const [showMenu, setShowMenu] = useState(false);
 
     const [userData, setUserData] = useState(user); // For Profile Display
+    const selectedUserRef = useRef(null);
+
+    useEffect(() => {
+        selectedUserRef.current = selectedUser;
+    }, [selectedUser]);
 
     const scrollToBottom = (force = false) => {
         if (!bottomRef.current) return;
@@ -48,7 +65,7 @@ export default function Chat() {
     // 1. Initial Load: Join Room and Fetch Users
     useEffect(() => {
         if (user.id) {
-            socket.emit('join_room', user.id);
+            // socket.emit('join_room', user.id); // This socket is now local to the other useEffect
             fetchUsers();
         }
     }, [user.id]);
@@ -62,25 +79,46 @@ export default function Chat() {
         }
     }, [messages]);
 
-    // 2. Chat Logic & Socket Listeners
-    useEffect(() => {
-        if (!user.id) {
-            navigate('/');
-            return;
-        }
+    // Helper to sort users by last message time
+    const sortUsers = (usersList) => {
+        return [...usersList].sort((a, b) => {
+            const timeA = a.lastMessage?.created_at ? new Date(a.lastMessage.created_at) : 0;
+            const timeB = b.lastMessage?.created_at ? new Date(b.lastMessage.created_at) : 0;
+            return timeB - timeA;
+        });
+    };
 
-        socket.on('receive_message', (data) => {
+    // 2. Persistent Socket Initialization
+    useEffect(() => {
+        if (!user.id || !token) return;
+
+        const socketInstance = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000', {
+            auth: { token }
+        });
+        socketRef.current = socketInstance;
+
+        socketInstance.emit('join_room', user.id);
+
+        socketInstance.on('receive_message', async (data) => {
             const senderId = data.sender_id || data.user_id;
 
-            if (selectedUser && senderId === selectedUser._id) {
-                setMessages(prev => [...prev, { ...data, role: 'user', created_at: new Date() }]);
-                markAsRead(senderId);
-            } else {
-                setUsers(prevUsers => prevUsers.map(u => {
+            // Security Check
+            if (data.receiverId !== user.id) return;
+
+            // Update Sidebar for EVERYONE
+            setUsers(prevUsers => {
+                const userExists = prevUsers.some(u => u._id === senderId);
+                if (!userExists) {
+                    fetchUsers();
+                    return prevUsers;
+                }
+
+                const updatedUsers = prevUsers.map(u => {
                     if (u._id === senderId) {
+                        const isCurrentlyViewing = selectedUserRef.current?._id === senderId;
                         return {
                             ...u,
-                            unreadCount: (u.unreadCount || 0) + 1,
+                            unreadCount: isCurrentlyViewing ? 0 : (u.unreadCount || 0) + 1,
                             lastMessage: {
                                 content: data.content,
                                 created_at: new Date(),
@@ -89,15 +127,24 @@ export default function Chat() {
                         };
                     }
                     return u;
-                }));
+                });
+                return sortUsers(updatedUsers);
+            });
+
+            // Append to Chat window ONLY if viewing this sender
+            if (selectedUserRef.current && senderId === selectedUserRef.current._id) {
+                setMessages(prev => [...prev, { ...data, role: 'user', created_at: new Date() }]);
+                markAsRead(senderId);
             }
         });
 
-        socket.on('messages_read', (data) => {
-            if (selectedUser && data.reader_id === selectedUser._id) {
+        socketInstance.on('messages_read', (data) => {
+            // data: { reader_id, read_at }
+            // If the person who read my messages is the one I'm currently looking at
+            if (selectedUserRef.current && data.reader_id === selectedUserRef.current._id) {
                 setMessages(prev => prev.map(msg => {
-                    const isMyMsg = (msg.sender_id === user.id) || (msg.user_id === user.id);
-                    if (isMyMsg && !msg.is_read) {
+                    const isFromMe = (msg.sender_id === user.id) || (msg.user_id === user.id);
+                    if (isFromMe && !msg.is_read) {
                         return { ...msg, is_read: true, read_at: data.read_at };
                     }
                     return msg;
@@ -106,18 +153,22 @@ export default function Chat() {
         });
 
         return () => {
-            socket.off('receive_message');
-            socket.off('messages_read');
+            socketInstance.disconnect();
+            socketRef.current = null;
         };
-    }, [selectedUser]);
+    }, [user.id, token]);
 
     const fetchUsers = async () => {
         try {
-            const res = await axios.get(`/api/chat/users?currentUserId=${user.id}`);
-            setUsers(res.data);
+            const token = sessionStorage.getItem('token');
+            const res = await axios.get(`/api/chat/users?currentUserId=${user.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const sorted = sortUsers(res.data);
+            setUsers(sorted);
 
-            // Restore active chat from localStorage only if no chat is currently open
-            const lastActiveChatId = localStorage.getItem('lastActiveChat');
+            // Restore active chat from sessionStorage only if no chat is currently open
+            const lastActiveChatId = sessionStorage.getItem('lastActiveChat');
             if (lastActiveChatId && !selectedUser) {
                 const foundUser = res.data.find(u => u._id === lastActiveChatId);
                 if (foundUser) {
@@ -132,14 +183,21 @@ export default function Chat() {
 
     const markAsRead = async (senderId) => {
         try {
-            await axios.post('/api/chat/messages/mark-read', { userId: user.id, senderId: senderId });
+            const token = sessionStorage.getItem('token');
+            await axios.post('/api/chat/messages/mark-read',
+                { userId: user.id, senderId: senderId },
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
             setUsers(prev => prev.map(u => u._id === senderId ? { ...u, unreadCount: 0 } : u));
         } catch (err) { console.error(err); }
     };
 
     const fetchP2PRequest = async (otherId, forceScroll = false) => {
         try {
-            const res = await axios.get(`/api/chat/p2p/${user.id}/${otherId}`);
+            const token = sessionStorage.getItem('token');
+            const res = await axios.get(`/api/chat/p2p/${user.id}/${otherId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             setMessages(res.data);
             if (forceScroll) {
                 // For switching users, we always want to jump to bottom immediately
@@ -152,7 +210,13 @@ export default function Chat() {
 
     const handleUserSelect = (u) => {
         setSelectedUser(u);
-        localStorage.setItem('lastActiveChat', u._id); // Persist chat
+        sessionStorage.setItem('lastActiveChat', u._id); // Persist chat
+
+        // Reset unread count locally for immediate UI update
+        setUsers(prev => prev.map(userItem =>
+            userItem._id === u._id ? { ...userItem, unreadCount: 0 } : userItem
+        ));
+
         fetchP2PRequest(u._id, true); // Force scroll on user selection
         if (u.unreadCount > 0) markAsRead(u._id);
     };
@@ -196,37 +260,45 @@ export default function Chat() {
             if (file) formData.append('file', file);
 
             // Upload to Server
+            const token = sessionStorage.getItem('token');
             const res = await axios.post('/api/chat/send', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    'Authorization': `Bearer ${token}`
+                }
             });
 
             const sentMsg = res.data.message;
 
-            // Update Messages to replace temp with real one (optional, or just rely on stable ID if server returns it)
             // But critically: EMIT SOCKET NOW with the REAL server file_path
-            socket.emit('send_message', {
-                sender_id: user.id,
-                receiverId: selectedUser._id,
-                content: sentMsg.content,
-                type: sentMsg.type,
-                file_path: sentMsg.file_path, // This is what the friend needs!
-                role: 'user'
-            });
+            if (socketRef.current) {
+                socketRef.current.emit('send_message', {
+                    sender_id: user.id,
+                    receiverId: selectedUser._id,
+                    content: sentMsg.content,
+                    type: sentMsg.type,
+                    file_path: sentMsg.file_path, // This is what the friend needs!
+                    role: 'user'
+                });
+            }
 
-            // Update User List Last Message
-            setUsers(prev => prev.map(u => {
-                if (u._id === selectedUser._id) {
-                    return {
-                        ...u,
-                        lastMessage: {
-                            content: sentMsg.type === 'image' ? '📷 Image' : (sentMsg.type === 'file' ? '📄 File' : sentMsg.content),
-                            created_at: new Date(),
-                            type: sentMsg.type
-                        }
-                    };
-                }
-                return u;
-            }));
+            // Update User List Last Message and Sort
+            setUsers(prev => {
+                const updated = prev.map(u => {
+                    if (u._id === selectedUser._id) {
+                        return {
+                            ...u,
+                            lastMessage: {
+                                content: sentMsg.type === 'image' ? '📷 Image' : (sentMsg.type === 'file' ? '📄 File' : sentMsg.content),
+                                created_at: new Date(),
+                                type: sentMsg.type
+                            }
+                        };
+                    }
+                    return u;
+                });
+                return sortUsers(updated);
+            });
 
         } catch (err) {
             console.error("Failed to send msg", err);
@@ -235,9 +307,8 @@ export default function Chat() {
     };
 
     const logout = () => {
-        localStorage.removeItem('user');
-        window.dispatchEvent(new Event('authChange'));
-        window.location.href = '/';
+        sessionStorage.clear();
+        navigate('/');
     };
 
     const formatTime = (dateStr) => {
@@ -437,7 +508,7 @@ export default function Chat() {
                     >
                         <div className="wa-avatar">
                             {/* Placeholder/Initial */}
-                            <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#54656f' }}>
+                            <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#3b4a54' }}>
                                 {u.name?.charAt(0).toUpperCase()}
                             </span>
                         </div>

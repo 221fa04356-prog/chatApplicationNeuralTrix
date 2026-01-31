@@ -20,6 +20,23 @@ const fs = require('fs');
 const badWords = ['hell', 'damn', 'badword', 'idiot', 'stupid', 'hate', 'kill', 'abuse']; // Add more as needed
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'neural_secret_77';
+
+// Middleware to verify JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Access denied' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid token' });
+        req.user = user;
+        next();
+    });
+};
 
 // Configure Multer
 const storage = multer.diskStorage({
@@ -72,9 +89,9 @@ router.get('/history/:userId', async (req, res) => {
 
 // Get All Users (for Contacts)
 // Get All Users (with Last Message & Unread Count)
-router.get('/users', async (req, res) => {
+router.get('/users', authenticateToken, async (req, res) => {
     try {
-        const currentUserId = req.query.currentUserId;
+        const currentUserId = req.user.id;
         // Fetch all approved users
         const users = await User.find({ status: 'approved' }).select('name email _id');
 
@@ -108,15 +125,28 @@ router.get('/users', async (req, res) => {
             };
         }));
 
-        res.json(enhancedUsers.filter(u => u !== null));
+        const result = enhancedUsers.filter(u => u !== null);
+        result.sort((a, b) => {
+            const timeA = a.lastMessage?.created_at ? new Date(a.lastMessage.created_at) : 0;
+            const timeB = b.lastMessage?.created_at ? new Date(b.lastMessage.created_at) : 0;
+            return timeB - timeA;
+        });
+
+        res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // Mark messages as read
-router.post('/messages/mark-read', async (req, res) => {
+router.post('/messages/mark-read', authenticateToken, async (req, res) => {
     const { userId, senderId } = req.body;
+
+    // Security check: userId must match req.user.id
+    if (userId !== req.user.id) {
+        return res.status(403).json({ error: 'Unauthorized reader ID' });
+    }
+
     try {
         const readAt = new Date();
         await Message.updateMany(
@@ -125,7 +155,6 @@ router.post('/messages/mark-read', async (req, res) => {
         );
 
         // Notify the sender that their messages were read
-        // userId is 'me' (reader), senderId is 'them' (sender who needs to know)
         if (req.io) {
             req.io.to(senderId).emit('messages_read', {
                 reader_id: userId,
@@ -140,9 +169,15 @@ router.post('/messages/mark-read', async (req, res) => {
 });
 
 // Get P2P Chat History
-router.get('/p2p/:userId/:otherUserId', async (req, res) => {
+router.get('/p2p/:userId/:otherUserId', authenticateToken, async (req, res) => {
     try {
         const { userId, otherUserId } = req.params;
+
+        // Security check: requester must be either userId or otherUserId
+        if (req.user.id !== userId && req.user.id !== otherUserId) {
+            return res.status(403).json({ error: 'You are not authorized to view this chat history' });
+        }
+
         const messages = await Message.find({
             $or: [
                 { user_id: userId, receiver_id: otherUserId },
@@ -158,7 +193,7 @@ router.get('/p2p/:userId/:otherUserId', async (req, res) => {
 });
 
 // Send Message
-router.post('/send', (req, res, next) => {
+router.post('/send', authenticateToken, (req, res, next) => {
     upload.single('file')(req, res, (err) => {
         if (err) {
             return res.status(400).json({ error: err.message });
@@ -170,6 +205,11 @@ router.post('/send', (req, res, next) => {
     const file = req.file;
 
     if (!userId) return res.status(400).json({ error: 'User ID required' });
+
+    // Security check: userId in body must match token user ID
+    if (userId !== req.user.id) {
+        return res.status(403).json({ error: 'Sender ID mismatch' });
+    }
 
     // Determine type
     let type = 'text';

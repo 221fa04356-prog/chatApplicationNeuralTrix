@@ -30,9 +30,10 @@ export default function Home() {
 
             const res = await axios.post('/api/auth/login', payload);
             const user = res.data.user;
+            const token = res.data.token;
 
-            localStorage.setItem('user', JSON.stringify(user));
-            localStorage.setItem('user', JSON.stringify(user));
+            sessionStorage.setItem('user', JSON.stringify(user));
+            sessionStorage.setItem('token', token);
 
             // Force reload to ensure socket and state are clean, which fixes the blank screen issue
             window.location.href = isAdmin && user.role === 'admin' ? '/admin' : '/chat';
