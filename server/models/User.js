@@ -7,7 +7,6 @@ const userSchema = new mongoose.Schema({
     login_id: { type: String, unique: true, sparse: true }, // sparse allows null/undefined to not clash
     password: { type: String }, // optional for initial request? No, usually required.
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
-    designation: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'approved'], default: 'pending' },
     created_at: { type: Date, default: Date.now }
 }, {

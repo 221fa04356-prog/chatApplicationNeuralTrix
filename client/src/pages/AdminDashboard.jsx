@@ -20,15 +20,16 @@ export default function AdminDashboard() {
     // Chat Review State
     const [viewChat, setViewChat] = useState(null); // { user, messages }
     const [loadingChat, setLoadingChat] = useState(false);
+    const [chatStep, setChatStep] = useState('contacts'); // 'contacts', 'dates', 'messages'
+    const [chatContacts, setChatContacts] = useState([]);
+    const [chatDates, setChatDates] = useState([]);
+    const [selectedContact, setSelectedContact] = useState(null);
+    const [selectedDate, setSelectedDate] = useState(null);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, messageId: null });
 
     // Multi-Select State
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedMsgs, setSelectedMsgs] = useState([]);
-
-    // Flag Alert State
-    const [showFlagAlert, setShowFlagAlert] = useState(false);
-    const [highRiskUsers, setHighRiskUsers] = useState([]);
 
     // Sidebar State
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,13 +48,6 @@ export default function AdminDashboard() {
             ]);
             setUsers(uRes.data);
             setResets(rRes.data);
-
-            // Check for high risk users (flags > 3)
-            const risky = uRes.data.filter(u => u.flaggedCount > 3);
-            if (risky.length > 0) {
-                setHighRiskUsers(risky);
-                setShowFlagAlert(true);
-            }
         } catch (err) {
             console.error(err);
         }
@@ -140,14 +134,87 @@ export default function AdminDashboard() {
 
     const handleReviewChat = async (user) => {
         setLoadingChat(true);
+        setViewChat({ user, messages: [] });
+        setChatStep('contacts');
+        setSelectedContact(null);
+        setSelectedDate(null);
         try {
-            const res = await axios.get(`/api/chat/history/${user.id}`);
-            setViewChat({ user, messages: res.data });
+            const res = await axios.get(`/api/admin/chat/contacts/${user.id}`);
+            setChatContacts(res.data);
         } catch (err) {
-            alert('Failed to fetch chat: ' + (err.response?.data?.error || err.message));
+            alert('Failed to fetch contacts: ' + (err.response?.data?.error || err.message));
         } finally {
             setLoadingChat(false);
         }
+    };
+
+    const handleSelectContact = async (contact) => {
+        setSelectedContact(contact);
+        setLoadingChat(true);
+        try {
+            const res = await axios.get(`/api/admin/chat/dates/${viewChat.user.id}/${contact.id}`);
+            setChatDates(res.data);
+            setChatStep('dates');
+        } catch (err) {
+            alert('Failed to fetch dates: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoadingChat(false);
+        }
+    };
+
+    const handleSelectDate = async (date) => {
+        setSelectedDate(date);
+        setLoadingChat(true);
+        try {
+            const res = await axios.get(`/api/admin/chat/history-filtered`, {
+                params: {
+                    userId: viewChat.user.id,
+                    otherUserId: selectedContact.id,
+                    date: date
+                }
+            });
+            setViewChat({ ...viewChat, messages: res.data });
+            setChatStep('messages');
+        } catch (err) {
+            alert('Failed to fetch history: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoadingChat(false);
+        }
+    };
+
+    const handleChatBack = () => {
+        if (chatStep === 'messages') setChatStep('dates');
+        else if (chatStep === 'dates') setChatStep('contacts');
+    };
+
+    const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+
+    const getFriendlyDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+
+        if (date.toDateString() === today.toDateString()) return 'Today';
+        if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short'
+        });
     };
 
     const handleContextMenu = (e, msgId) => {
@@ -321,11 +388,15 @@ export default function AdminDashboard() {
                 {activeTab === 'pending' && (
                     <div style={{ display: 'grid', gap: '1rem' }}>
                         {pendingUsers.length === 0 && <p>No pending requests.</p>}
-                        {pendingUsers.map(u => (
+                        {pendingUsers.map((u, index) => (
                             <div key={u.id} className="card" style={{ maxWidth: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <strong>{u.name}</strong> <br />
-                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email} | {u.mobile} | <span style={{ fontWeight: 600, color: '#4b5563' }}>{u.designation || 'N/A'}</span></span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ background: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>#{index + 1}</span>
+                                        <strong>{u.name}</strong>
+                                    </div>
+                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email} | {u.mobile}</span> <br />
+                                    <span style={{ color: 'var(--primary)', fontSize: '0.8rem', fontWeight: '500' }}>Requested: {formatDate(u.created_at)}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                     <input
@@ -379,7 +450,7 @@ export default function AdminDashboard() {
                             <div key={u.id} className="card" style={{ maxWidth: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <strong>{u.name}</strong> <br />
-                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email} | {u.mobile} | <span style={{ fontWeight: 600, color: '#4b5563' }}>{u.designation || 'N/A'}</span></span>
+                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{u.email}</span>
                                     {u.flaggedCount > 0 && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#f59e0b', fontSize: '0.85rem', marginTop: '0.25rem', fontWeight: 600 }}>
                                             <AlertTriangle size={14} /> Warning: {u.flaggedCount} flagged messages
@@ -402,11 +473,15 @@ export default function AdminDashboard() {
                 {activeTab === 'resets' && (
                     <div style={{ display: 'grid', gap: '1rem' }}>
                         {resets.length === 0 && <p>No pending reset requests.</p>}
-                        {resets.map(r => (
+                        {resets.map((r, index) => (
                             <div key={r.id} className="card" style={{ maxWidth: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <strong>Reset for: {r.name}</strong> <br />
-                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{r.email}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ background: '#f59e0b', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>#{index + 1}</span>
+                                        <strong>Reset for: {r.name}</strong>
+                                    </div>
+                                    <span style={{ color: 'gray', fontSize: '0.9rem' }}>{r.email}</span> <br />
+                                    <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: '500' }}>Requested: {formatDate(r.created_at)}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                     <div style={{ position: 'relative' }}>
@@ -456,81 +531,124 @@ export default function AdminDashboard() {
                         <div style={{ background: 'white', padding: '1.5rem', borderRadius: '0.5rem', width: '90%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
                             <div style={{ marginBottom: '1rem' }}>
-                                <h3 style={{ margin: 0, paddingRight: '2rem' }}>Review Chat: {viewChat.user.name}</h3>
+                                <h3 style={{ margin: 0, paddingRight: '2rem' }}>
+                                    Review Chat: {viewChat.user.name}
+                                    {selectedContact && ` > ${selectedContact.name}`}
+                                    {selectedDate && ` > ${getFriendlyDate(selectedDate)}`}
+                                </h3>
+                                {chatStep !== 'contacts' && (
+                                    <button
+                                        onClick={handleChatBack}
+                                        style={{ marginTop: '0.5rem', padding: '4px 12px', fontSize: '0.8rem', cursor: 'pointer', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    >
+                                        ← Back to {chatStep === 'messages' ? 'Dates' : 'Contacts'}
+                                    </button>
+                                )}
                             </div>
 
-                            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #e5e7eb', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', background: '#f9fafb' }}>
-                                {viewChat.messages.length === 0 ? (
-                                    <p style={{ color: 'gray', textAlign: 'center' }}>No chat history found.</p>
+                            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #e5e7eb', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', background: '#f9fafb', minHeight: '300px' }}>
+                                {loadingChat ? (
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: 'gray' }}>Loading...</div>
                                 ) : (
-                                    viewChat.messages.map((msg, i) => (
-                                        <div key={i} style={{ marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '85%', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
-                                                <div
-                                                    onClick={() => selectionMode && toggleSelection(msg.id)}
-                                                    onContextMenu={(e) => !selectionMode && handleContextMenu(e, msg.id)}
-                                                    style={{
-                                                        background: msg.is_deleted_by_admin ? '#f3f4f6' : (selectedMsgs.includes(msg.id) ? '#c7d2fe' : (msg.is_flagged ? '#fef3c7' : (msg.role === 'user' ? '#dbeafe' : 'white'))),
-                                                        padding: '0.5rem 0.75rem',
-                                                        borderRadius: '0.5rem',
-                                                        border: msg.is_flagged ? '1px solid #f59e0b' : (msg.role === 'user' ? 'none' : '1px solid #e5e7eb'),
-                                                        width: '100%',
-                                                        cursor: selectionMode ? 'pointer' : 'default',
-                                                        opacity: msg.is_deleted_by_admin ? 0.7 : 1,
-                                                        fontStyle: 'normal'
-                                                    }}>
-                                                    {/* Deleted Badge */}
-                                                    {msg.is_deleted_by_admin && (
-                                                        <div style={{
-                                                            fontSize: '0.7rem',
-                                                            fontWeight: 'bold',
-                                                            color: '#ef4444',
-                                                            marginBottom: '0.2rem',
-                                                            borderBottom: '1px solid #fee2e2',
-                                                            paddingBottom: '2px'
-                                                        }}>
-                                                            🚫 DELETED BY ADMIN
+                                    <>
+                                        {chatStep === 'contacts' && (
+                                            <div style={{ display: 'grid', gap: '0.5rem' }}>
+                                                <p style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Select a contact to view history:</p>
+                                                {chatContacts.length === 0 ? (
+                                                    <p style={{ textAlign: 'center', color: 'gray' }}>No communication found.</p>
+                                                ) : (
+                                                    chatContacts.map(c => (
+                                                        <div
+                                                            key={c.id}
+                                                            onClick={() => handleSelectContact(c)}
+                                                            style={{ padding: '0.75rem', border: '1px solid #e5e7eb', borderRadius: '0.4rem', cursor: 'pointer', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                            onMouseOver={e => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                                                            onMouseOut={e => e.currentTarget.style.backgroundColor = 'white'}
+                                                        >
+                                                            <span>{c.name} {c.type === 'ai' && <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>[AI]</span>}</span>
+                                                            <span style={{ fontSize: '0.8rem', color: 'gray' }}>{c.email}</span>
                                                         </div>
-                                                    )}
-
-                                                    {/* Flagged Badge */}
-                                                    {msg.is_flagged && !msg.is_deleted_by_admin && (
-                                                        <div style={{
-                                                            fontSize: '0.7rem',
-                                                            fontWeight: 'bold',
-                                                            color: '#d97706',
-                                                            marginBottom: '0.2rem',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '4px'
-                                                        }}>
-                                                            <AlertTriangle size={10} /> POSSIBLY UNPROFESSIONAL
-                                                        </div>
-                                                    )}
-
-                                                    {/* Content Rendering */}
-                                                    {msg.type === 'text' && msg.content}
-
-                                                    {msg.type === 'image' && (
-                                                        <div>
-                                                            <div style={{ fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '2px', color: 'blue' }}>[Image Uploaded]</div>
-                                                            {msg.file_path && <img src={msg.file_path} alt="content" style={{ maxWidth: '150px', borderRadius: '4px', border: '1px solid #ddd' }} />}
-                                                            {msg.content && <div>{msg.content}</div>}
-                                                        </div>
-                                                    )}
-
-                                                    {msg.type === 'file' && (
-                                                        <div>
-                                                            <div style={{ fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '2px', color: 'blue' }}>[File Uploaded]</div>
-                                                            {msg.file_path && <a href={msg.file_path} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{msg.file_path.split('/').pop()}</a>}
-                                                            {msg.content && <div>{msg.content}</div>}
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    ))
+                                                )}
                                             </div>
-                                            <span style={{ fontSize: '0.75rem', color: 'gray', marginTop: '2px' }}>{msg.role === 'user' ? 'User' : 'AI'}</span>
-                                        </div>
-                                    ))
+                                        )}
+
+                                        {chatStep === 'dates' && (
+                                            <div style={{ display: 'grid', gap: '0.5rem' }}>
+                                                <p style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Select a date:</p>
+                                                {chatDates.length === 0 ? (
+                                                    <p style={{ textAlign: 'center', color: 'gray' }}>No history found for this contact.</p>
+                                                ) : (
+                                                    chatDates.map(date => (
+                                                        <div
+                                                            key={date}
+                                                            onClick={() => handleSelectDate(date)}
+                                                            style={{ padding: '0.75rem', border: '1px solid #e5e7eb', borderRadius: '0.4rem', cursor: 'pointer', background: 'white', textAlign: 'center' }}
+                                                            onMouseOver={e => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                                                            onMouseOut={e => e.currentTarget.style.backgroundColor = 'white'}
+                                                        >
+                                                            {getFriendlyDate(date)}
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {chatStep === 'messages' && (
+                                            <>
+                                                {viewChat.messages.length === 0 ? (
+                                                    <p style={{ color: 'gray', textAlign: 'center' }}>No messages found on this date.</p>
+                                                ) : (
+                                                    viewChat.messages.map((msg, i) => (
+                                                        <div key={i} style={{ marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '85%', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+                                                                <div
+                                                                    onClick={() => selectionMode && toggleSelection(msg.id)}
+                                                                    onContextMenu={(e) => !selectionMode && handleContextMenu(e, msg.id)}
+                                                                    style={{
+                                                                        background: msg.is_deleted_by_admin ? '#f3f4f6' : (selectedMsgs.includes(msg.id) ? '#c7d2fe' : (msg.is_flagged ? '#fef3c7' : (msg.role === 'user' ? '#dbeafe' : 'white'))),
+                                                                        padding: '0.5rem 0.75rem',
+                                                                        borderRadius: '0.5rem',
+                                                                        border: msg.is_flagged ? '1px solid #f59e0b' : (msg.role === 'user' ? 'none' : '1px solid #e5e7eb'),
+                                                                        width: '100%',
+                                                                        cursor: selectionMode ? 'pointer' : 'default',
+                                                                        opacity: msg.is_deleted_by_admin ? 0.7 : 1,
+                                                                        fontStyle: 'normal'
+                                                                    }}>
+                                                                    {/* ... badges and content ... */}
+                                                                    {msg.is_deleted_by_admin && (
+                                                                        <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#ef4444', marginBottom: '0.2rem', borderBottom: '1px solid #fee2e2', paddingBottom: '2px' }}>🚫 DELETED BY ADMIN</div>
+                                                                    )}
+                                                                    {msg.is_flagged && !msg.is_deleted_by_admin && (
+                                                                        <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#d97706', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                            <AlertTriangle size={10} /> POSSIBLY UNPROFESSIONAL
+                                                                        </div>
+                                                                    )}
+                                                                    {msg.type === 'text' && msg.content}
+                                                                    {msg.type === 'image' && (
+                                                                        <div>
+                                                                            <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'blue' }}>[Image]</div>
+                                                                            {msg.file_path && <img src={msg.file_path} alt="content" style={{ maxWidth: '150px', borderRadius: '4px' }} />}
+                                                                            {msg.content && <div>{msg.content}</div>}
+                                                                        </div>
+                                                                    )}
+                                                                    {msg.type === 'file' && (
+                                                                        <div>
+                                                                            <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'blue' }}>[File]</div>
+                                                                            {msg.file_path && <a href={msg.file_path} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{msg.file_path.split('/').pop()}</a>}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <span style={{ fontSize: '0.7rem', color: 'gray', marginTop: '2px' }}>
+                                                                {msg.role === 'user' ? 'User' : (msg.role === 'model' ? 'AI' : 'Other')} | {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
@@ -545,9 +663,11 @@ export default function AdminDashboard() {
                                 ) : (
                                     <>
                                         <button className="btn-secondary" onClick={() => setViewChat(null)}>Close</button>
-                                        <button className="btn-danger" onClick={confirmDeleteChat} disabled={viewChat.messages.length === 0}>
-                                            <Trash2 size={16} style={{ marginRight: '5px' }} /> Clear All History
-                                        </button>
+                                        {chatStep === 'messages' && (
+                                            <button className="btn-danger" onClick={confirmDeleteChat} disabled={viewChat.messages.length === 0}>
+                                                <Trash2 size={16} style={{ marginRight: '5px' }} /> Clear for this day
+                                            </button>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -580,34 +700,6 @@ export default function AdminDashboard() {
                     </div>
                 )
             }
-            {/* High Risk Alert Modal */}
-            {showFlagAlert && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000
-                }}>
-                    <div style={{ background: 'white', padding: '2rem', borderRadius: '0.5rem', width: '90%', maxWidth: '500px', textAlign: 'center' }}>
-                        <div style={{ marginBottom: '1rem', color: '#ef4444' }}>
-                            <AlertTriangle size={48} style={{ margin: '0 auto' }} />
-                        </div>
-                        <h2 style={{ color: '#b91c1c', marginBottom: '1rem' }}>Critical Attention Required</h2>
-                        <p style={{ marginBottom: '1.5rem', color: '#374151' }}>
-                            The following users have been flagged for unethical behavior more than 3 times:
-                        </p>
-                        <ul style={{ textAlign: 'left', background: '#fee2e2', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem', listStyle: 'none' }}>
-                            {highRiskUsers.map(u => (
-                                <li key={u.id} style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#991b1b', display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>{u.name}</span>
-                                    <span>{u.flaggedCount} flags</span>
-                                </li>
-                            ))}
-                        </ul>
-                        <button className="btn-primary" onClick={() => setShowFlagAlert(false)} style={{ width: '100%' }}>
-                            Acknowledge
-                        </button>
-                    </div>
-                </div>
-            )}
         </div >
     );
 }
