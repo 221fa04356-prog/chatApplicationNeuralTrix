@@ -171,4 +171,98 @@ router.delete('/chat/messages/delete', async (req, res) => {
     }
 });
 
+// --- Advanced Chat Review Routes ---
+
+// Get all contacts a user has interacted with (including AI)
+router.get('/chat/contacts/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Find all unique people this user has messaged or received messages from
+        const sentTo = await Message.distinct('receiver_id', { user_id: userId, receiver_id: { $ne: null } });
+        const receivedFrom = await Message.distinct('user_id', { receiver_id: userId });
+
+        // Merge and unique IDs
+        const contactIds = [...new Set([...sentTo.map(id => id.toString()), ...receivedFrom.map(id => id.toString())])];
+
+        // Fetch user details for these contacts
+        const contacts = await User.find({ _id: { $in: contactIds } }).select('name email');
+
+        // Check if user has AI messages
+        const hasAI = await Message.exists({ user_id: userId, receiver_id: null });
+
+        const result = contacts.map(c => ({ id: c._id, name: c.name, email: c.email, type: 'user' }));
+        if (hasAI) {
+            result.unshift({ id: 'ai', name: 'AI Assistant', email: 'System', type: 'ai' });
+        }
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get unique dates for a specific conversation
+router.get('/chat/dates/:userId/:otherUserId', async (req, res) => {
+    try {
+        const { userId, otherUserId } = req.params;
+        let query = {};
+
+        if (otherUserId === 'ai') {
+            query = { user_id: userId, receiver_id: null };
+        } else {
+            query = {
+                $or: [
+                    { user_id: userId, receiver_id: otherUserId },
+                    { user_id: otherUserId, receiver_id: userId }
+                ]
+            };
+        }
+
+        const messages = await Message.find(query).select('created_at').sort({ created_at: -1 });
+
+        // Extract unique dates (YYYY-MM-DD)
+        const dates = [...new Set(messages.map(m => m.created_at.toISOString().split('T')[0]))];
+
+        res.json(dates);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get history for a specific date and contact
+router.get('/chat/history-filtered', async (req, res) => {
+    try {
+        const { userId, otherUserId, date } = req.query;
+        if (!userId || !otherUserId || !date) return res.status(400).json({ error: 'Missing parameters' });
+
+        const start = new Date(date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(date);
+        end.setHours(23, 59, 59, 999);
+
+        let query = {
+            created_at: { $gte: start, $lte: end }
+        };
+
+        if (otherUserId === 'ai') {
+            query.user_id = userId;
+            query.receiver_id = null;
+        } else {
+            query.$or = [
+                { user_id: userId, receiver_id: otherUserId },
+                { user_id: otherUserId, receiver_id: userId }
+            ];
+        }
+
+        const messages = await Message.find(query)
+            .sort({ created_at: 1 })
+            .populate('reply_to', 'content type file_path role');
+
+        res.json(messages);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

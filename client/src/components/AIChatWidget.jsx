@@ -116,6 +116,23 @@ export default function AIChatWidget() {
         }
     };
 
+    const getFriendlyDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+
+        if (date.toDateString() === today.toDateString()) return 'Today';
+        if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short'
+        });
+    };
+
     const handleSend = async (e) => {
         e.preventDefault();
         if (!input.trim() && !file) return;
@@ -189,18 +206,34 @@ export default function AIChatWidget() {
                     </div>
 
                     <div className="ai-messages">
-                        {messages.map((msg) => (
-                            <div key={msg.id} className={`ai-message ${msg.role}`}>
-                                {msg.type === 'image' && <img src={msg.file_path} alt="upload" className="msg-img" />}
-                                {msg.type === 'file' && (
-                                    <div className="file-attachment">
-                                        <File size={14} />
-                                        <a href={msg.file_path} target="_blank" rel="noreferrer">File</a>
+                        {messages.map((msg, idx) => {
+                            const msgDate = msg.created_at ? new Date(msg.created_at).toDateString() : null;
+                            const prevMsgDate = idx > 0 && messages[idx - 1].created_at ? new Date(messages[idx - 1].created_at).toDateString() : null;
+                            const showSeparator = msgDate && msgDate !== prevMsgDate;
+
+                            return (
+                                <React.Fragment key={msg.id}>
+                                    {showSeparator && (
+                                        <div style={{ textAlign: 'center', margin: '1rem 0', position: 'relative', width: '100%' }}>
+                                            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: 'rgba(0,0,0,0.05)', zIndex: 0 }}></div>
+                                            <span style={{ background: '#f8fafc', padding: '0 0.5rem', fontSize: '0.65rem', color: '#94a3b8', position: 'relative', zIndex: 1, fontWeight: '600' }}>
+                                                {getFriendlyDate(msg.created_at)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className={`ai-message ${msg.role}`}>
+                                        {msg.type === 'image' && <img src={msg.file_path} alt="upload" className="msg-img" />}
+                                        {msg.type === 'file' && (
+                                            <div className="file-attachment">
+                                                <File size={14} />
+                                                <a href={msg.file_path} target="_blank" rel="noreferrer">File</a>
+                                            </div>
+                                        )}
+                                        <p>{msg.content}</p>
                                     </div>
-                                )}
-                                <p>{msg.content}</p>
-                            </div>
-                        ))}
+                                </React.Fragment>
+                            );
+                        })}
                         {isLoading && (
                             <div className="ai-message model loading">
                                 <div className="loader"></div>

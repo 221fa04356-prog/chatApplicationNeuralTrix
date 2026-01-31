@@ -220,158 +220,31 @@ export default function Chat() {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    // --- Sub Render Functions ---
+    const getFriendlyDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
 
-    // --- Sub Render Functions ---
+        if (date.toDateString() === today.toDateString()) return 'Today';
+        if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
 
-    const renderLeftSidebar = () => (
-        <div className="wa-nav-sidebar">
-            <div className="wa-nav-top">
-                <button
-                    className={`wa-nav-icon-btn ${!isProfileOpen ? 'active' : ''}`}
-                    onClick={() => setIsProfileOpen(false)}
-                    title="Chats"
-                >
-                    <MessageSquare size={24} />
-                    {/* Optional: Add red dot for total unread */}
-                </button>
-                <button className="wa-nav-icon-btn" title="Status"><CircleDashed size={24} /></button>
-                <button className="wa-nav-icon-btn" title="Channels"><Users size={24} /></button>
-                <button className="wa-nav-icon-btn" title="Communities"><Users size={24} /></button>
-            </div>
-            <div className="wa-nav-bottom">
-                <button className="wa-nav-icon-btn" title="Settings"><Settings size={24} /></button>
-                <button
-                    className={`wa-nav-icon-btn wa-profile-btn ${isProfileOpen ? 'active' : ''}`}
-                    onClick={() => setIsProfileOpen(true)}
-                    title="Profile"
-                >
-                    {/* User Profile Image as Icon */}
-                    {userData.image ? (
-                        <img src={userData.image} alt="Me" />
-                    ) : (
-                        <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#ccc' }} />
-                    )}
-                </button>
-            </div>
-        </div>
-    );
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short'
+        });
+    };
 
-    const renderProfileDrawer = () => (
-        <div className="wa-profile-drawer">
-            <div className="wa-drawer-header">
-                <button onClick={() => setIsProfileOpen(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <ArrowLeft size={24} style={{ marginRight: 10 }} />
-                    Profile
-                </button>
-            </div>
-            <div className="wa-drawer-content">
-                <div className="wa-profile-pic-section">
-                    {userData.image ? (
-                        <img src={userData.image} alt="Profile" className="wa-profile-pic-large" />
-                    ) : (
-                        <div className="wa-profile-pic-large" style={{ background: '#dfe1e5', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                            <UserIcon size={80} color="#fff" />
-                        </div>
-                    )}
-                </div>
-
-                <div className="wa-profile-section">
-                    <div className="wa-section-label">Your Name</div>
-                    <div className="wa-section-value-row">
-                        <span className="wa-section-value">{userData.name || 'Your Name'}</span>
-                        <Smile size={20} color="#8696a0" style={{ cursor: 'pointer' }} />
-                    </div>
-                    <div className="wa-section-note">This is not your username or pin. This name will be visible to your WhatsApp contacts.</div>
-                </div>
-
-                <div className="wa-profile-section">
-                    <div className="wa-section-label">About</div>
-                    <div className="wa-section-value-row">
-                        <span className="wa-section-value">Available</span>
-                        <Smile size={20} color="#8696a0" style={{ cursor: 'pointer' }} />
-                    </div>
-                </div>
-
-                <div className="wa-profile-section">
-                    <div className="wa-section-label">Phone</div>
-                    <div className="wa-section-value-row">
-                        <span className="wa-section-value">{userData.phone || '+91 94924 63918'}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-
-
-
-
-
-
-    const renderFilePreview = () => (
-        <div className="wa-file-preview-overlay" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#e9edef', position: 'relative' }}>
-            {/* Header */}
-            <div style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#3b6e9e', color: 'white' }}>
-                <button onClick={() => setFile(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', display: 'flex' }}>
-                    <ArrowLeft size={24} />
-                </button>
-            </div>
-
-            {/* Content */}
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', padding: 20 }}>
-                {file && file.type.startsWith('image/') ? (
-                    <img src={URL.createObjectURL(file)} alt="Preview" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }} />
-                ) : (
-                    <div style={{ textAlign: 'center', padding: 40, background: 'white', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                        <div style={{ fontSize: 40, marginBottom: 10 }}>📄</div>
-                        <div style={{ fontSize: 16, fontWeight: 500 }}>{file?.name}</div>
-                        <div style={{ fontSize: 14, color: '#667781', marginTop: 5 }}>
-                            {file?.size ? Math.ceil(file.size / 1024) + ' kB' : ''} • {file?.type?.split('/').pop().toUpperCase()}
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Footer / Caption Input */}
-            <div style={{ padding: '10px 15px', background: '#f0f2f5', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="wa-input-pill" style={{ flex: 1, background: 'white' }}>
-                    <input
-                        type="text"
-                        className="wa-input-box"
-                        placeholder="Add a caption..."
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => {
-                            if (e.key === 'Enter') handleSend(e);
-                        }}
-                        autoFocus
-                    />
-                </div>
-                <button onClick={handleSend} className="wa-nav-icon-btn wa-send-btn">
-                    <Send size={20} color="white" />
-                </button>
-            </div>
-        </div>
-    );
-
-    const renderLeftPanel = () => (
-        <div className="wa-left-panel">
-            {/* If profile is open, it overlays this, but in DOM structure it can be sibling or child. 
-                Based on request: "icon displays like in third image when clicked" -> Drawer opens over chat list.
-            */}
-            {isProfileOpen && renderProfileDrawer()}
-
-            {/* Chat List Header */}
-            <div className="wa-header">
-                <span className="wa-header-title">Chats</span>
-                <div className="wa-header-icons">
-                    <button className="wa-nav-icon-btn" title="New Chat"><Plus size={20} /></button>
-                    <button
-                        className="wa-nav-icon-btn"
-                        title="Menu"
-                        onClick={() => setShowMenu(!showMenu)}
-                    >
-                        <MoreVertical size={20} />
+    return (
+        <div style={{ display: 'flex', height: '100vh', background: '#f3f4f6' }}>
+            {/* Sidebar */}
+            <div style={{ width: '320px', background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '1rem', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, color: 'var(--primary)' }}>Contacts</h3>
+                    <button className="btn-secondary" style={{ padding: '0.4rem' }} onClick={logout} title="Logout">
+                        <LogOut size={16} />
                     </button>
                     {/* Simple Menu Dropdown */}
                     {showMenu && (
@@ -498,97 +371,63 @@ export default function Chat() {
                                 <span style={{ fontSize: 12, color: '#667781' }}>click here for contact info</span>
                             </div>
                         </div>
-                        <div className="wa-header-icons">
-                            <button className="wa-nav-icon-btn"><Video size={20} /></button>
-                            <button className="wa-nav-icon-btn"><Phone size={20} /></button>
-                            <button className="wa-nav-icon-btn"><Search size={20} /></button>
-                        </div>
-                    </div>
+                        <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                {messages.map((msg, idx) => {
+                                    const isMe = (msg.sender_id === user.id) || (msg.user_id === user.id);
+                                    const msgDate = new Date(msg.created_at).toDateString();
+                                    const prevMsgDate = idx > 0 ? new Date(messages[idx - 1].created_at).toDateString() : null;
+                                    const showSeparator = msgDate !== prevMsgDate;
 
-                    {/* Messages */}
-                    <div className="wa-chat-messages-area">
-                        {messages.map((msg, idx) => {
-                            const isMe = (msg.sender_id === user.id) || (msg.user_id === user.id);
-                            return (
-                                <div key={idx} className={`wa-message-bubble ${isMe ? 'wa-msg-sent' : 'wa-msg-rec'}`}>
-                                    {/* Image Rendering */}
-                                    {msg.type === 'image' && (
-                                        <div className="wa-msg-image-container" onClick={() => handleDownload(msg.file_path, msg.fileName)}>
-                                            <img src={msg.file_path} alt="Sent" className="wa-msg-image" />
-                                        </div>
-                                    )}
-                                    {/* File Rendering */}
-                                    {msg.type === 'file' && (
-                                        <div
-                                            className="wa-msg-doc-bubble"
-                                            onClick={() => handleDownload(msg.file_path, msg.fileName)}
-                                            style={{ cursor: 'pointer' }}
-                                        >
-                                            {/* Top: Preview */}
-                                            <div className="wa-doc-preview-area">
-                                                {/* Simulated Page Content */}
-                                                <div className="wa-doc-preview-simulated">
-                                                    {/* Simulate text lines */}
-                                                    <div style={{ width: '80%', height: 6, background: '#d1d7db', marginBottom: 6 }}></div>
-                                                    <div style={{ width: '100%', height: 4, background: '#e9edef', marginBottom: 3 }}></div>
-                                                    <div style={{ width: '100%', height: 4, background: '#e9edef', marginBottom: 3 }}></div>
-                                                    <div style={{ width: '90%', height: 4, background: '#e9edef', marginBottom: 3 }}></div>
+                                    return (
+                                        <React.Fragment key={idx}>
+                                            {showSeparator && (
+                                                <div style={{ textAlign: 'center', margin: '1.5rem 0 1rem 0', position: 'relative' }}>
+                                                    <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: '#e5e7eb', zIndex: 0 }}></div>
+                                                    <span style={{ background: '#f3f4f6', padding: '0 1rem', fontSize: '0.75rem', color: '#6b7280', position: 'relative', zIndex: 1, fontWeight: '600' }}>
+                                                        {getFriendlyDate(msg.created_at)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+                                                <div style={{
+                                                    padding: '1rem',
+                                                    borderRadius: '1rem',
+                                                    borderBottomRightRadius: isMe ? 0 : '1rem',
+                                                    borderBottomLeftRadius: isMe ? '1rem' : 0,
+                                                    background: isMe ? 'var(--primary)' : 'white',
+                                                    color: isMe ? 'white' : 'black',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                                }}>
+                                                    {msg.content}
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                    {/* Timestamp */}
+                                                    <span>{formatTime(msg.created_at)}</span>
 
-                                                    <div style={{ marginTop: 10, width: '40%', height: 20, background: '#e9edef' }}></div> {/* Image placeholder */}
-
-                                                    <div style={{ flex: 1 }}></div>
-                                                    <div style={{ fontSize: 8, color: '#999', textAlign: 'center' }}>Page 1</div>
+                                                    {/* Receipt Status (Only for Me) */}
+                                                    {isMe && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                            {msg.is_read ? (
+                                                                <>
+                                                                    <CheckCheck size={14} color="#3b82f6" /> {/* Blue Double Tick */}
+                                                                    <span style={{ fontSize: '0.65rem' }}>Read {formatTime(msg.read_at)}</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <CheckCheck size={14} color="#9ca3af" /> {/* Grey Double Tick (Delivered) */}
+                                                                    <span style={{ fontSize: '0.65rem' }}>Delivered {formatTime(msg.created_at)}</span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-
-                                            {/* Bottom: Info Footer */}
-                                            <div className="wa-doc-info-area">
-                                                <div className="wa-doc-icon" style={{ background: 'transparent', padding: 0 }}>
-                                                    <FileText size={30} color="#e53935" strokeWidth={1.5} />
-                                                </div>
-                                                <div className="wa-doc-details">
-                                                    <div className="wa-doc-filename" title={msg.fileName || 'Document'}>
-                                                        {msg.fileName || 'Document.pdf'}
-                                                    </div>
-                                                    <div className="wa-doc-meta">
-                                                        {msg.pageCount || 1} pages • {(msg.fileName || msg.file_path)?.split('.').pop()?.toUpperCase() || 'PDF'} • {msg.fileSize ? Math.ceil(msg.fileSize / 1024) + ' kB' : 'Unknown size'}
-                                                    </div>
-                                                </div>
-
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {msg.content && <span>{msg.content}</span>}
-
-                                    <div className="wa-msg-meta">
-                                        <span>{formatTime(msg.created_at)}</span>
-                                        {isMe && (
-                                            msg.is_read
-                                                ? <CheckCheck size={14} color="#53bdeb" />
-                                                : <CheckCheck size={14} color="#9ca3af" />
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        <div ref={bottomRef} />
-                    </div>
-
-                    {/* Footer Input */}
-                    <div className="wa-footer">
-                        {/* Paperclip / File Input */}
-                        <div style={{ marginRight: 10 }}>
-                            <button className="wa-nav-icon-btn" onClick={() => fileInputRef.current.click()}>
-                                <Paperclip size={24} color="#54656f" />
-                            </button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                style={{ display: 'none' }}
-                                accept=".jpg,.jpeg,.png,.doc,.docx,.pdf"
-                                onChange={handleFileSelect}
-                            />
+                                        </React.Fragment>
+                                    );
+                                })}
+                                <div ref={bottomRef} />
+                            </div>
                         </div>
 
                         <div className="wa-input-pill">
