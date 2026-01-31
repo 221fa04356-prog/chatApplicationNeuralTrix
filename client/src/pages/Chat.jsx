@@ -183,6 +183,23 @@ export default function Chat() {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
+    const getFriendlyDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+
+        if (date.toDateString() === today.toDateString()) return 'Today';
+        if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short'
+        });
+    };
+
     return (
         <div style={{ display: 'flex', height: '100vh', background: '#f3f4f6' }}>
             {/* Sidebar */}
@@ -264,41 +281,55 @@ export default function Chat() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 {messages.map((msg, idx) => {
                                     const isMe = (msg.sender_id === user.id) || (msg.user_id === user.id);
-                                    return (
-                                        <div key={idx} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-                                            <div style={{
-                                                padding: '1rem',
-                                                borderRadius: '1rem',
-                                                borderBottomRightRadius: isMe ? 0 : '1rem',
-                                                borderBottomLeftRadius: isMe ? '1rem' : 0,
-                                                background: isMe ? 'var(--primary)' : 'white',
-                                                color: isMe ? 'white' : 'black',
-                                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                                            }}>
-                                                {msg.content}
-                                            </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                                {/* Timestamp */}
-                                                <span>{formatTime(msg.created_at)}</span>
+                                    const msgDate = new Date(msg.created_at).toDateString();
+                                    const prevMsgDate = idx > 0 ? new Date(messages[idx - 1].created_at).toDateString() : null;
+                                    const showSeparator = msgDate !== prevMsgDate;
 
-                                                {/* Receipt Status (Only for Me) */}
-                                                {isMe && (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                                                        {msg.is_read ? (
-                                                            <>
-                                                                <CheckCheck size={14} color="#3b82f6" /> {/* Blue Double Tick */}
-                                                                <span style={{ fontSize: '0.65rem' }}>Read {formatTime(msg.read_at)}</span>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <CheckCheck size={14} color="#9ca3af" /> {/* Grey Double Tick (Delivered) */}
-                                                                <span style={{ fontSize: '0.65rem' }}>Delivered {formatTime(msg.created_at)}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
+                                    return (
+                                        <React.Fragment key={idx}>
+                                            {showSeparator && (
+                                                <div style={{ textAlign: 'center', margin: '1.5rem 0 1rem 0', position: 'relative' }}>
+                                                    <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: '#e5e7eb', zIndex: 0 }}></div>
+                                                    <span style={{ background: '#f3f4f6', padding: '0 1rem', fontSize: '0.75rem', color: '#6b7280', position: 'relative', zIndex: 1, fontWeight: '600' }}>
+                                                        {getFriendlyDate(msg.created_at)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+                                                <div style={{
+                                                    padding: '1rem',
+                                                    borderRadius: '1rem',
+                                                    borderBottomRightRadius: isMe ? 0 : '1rem',
+                                                    borderBottomLeftRadius: isMe ? '1rem' : 0,
+                                                    background: isMe ? 'var(--primary)' : 'white',
+                                                    color: isMe ? 'white' : 'black',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                                }}>
+                                                    {msg.content}
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                    {/* Timestamp */}
+                                                    <span>{formatTime(msg.created_at)}</span>
+
+                                                    {/* Receipt Status (Only for Me) */}
+                                                    {isMe && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                            {msg.is_read ? (
+                                                                <>
+                                                                    <CheckCheck size={14} color="#3b82f6" /> {/* Blue Double Tick */}
+                                                                    <span style={{ fontSize: '0.65rem' }}>Read {formatTime(msg.read_at)}</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <CheckCheck size={14} color="#9ca3af" /> {/* Grey Double Tick (Delivered) */}
+                                                                    <span style={{ fontSize: '0.65rem' }}>Delivered {formatTime(msg.created_at)}</span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
+                                        </React.Fragment>
                                     );
                                 })}
                                 <div ref={bottomRef} />
