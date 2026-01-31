@@ -7,6 +7,9 @@ const messageSchema = new mongoose.Schema({
     content: { type: String },
     type: { type: String, enum: ['text', 'image', 'file'], default: 'text' },
     file_path: { type: String },
+    fileName: { type: String },
+    fileSize: { type: Number }, // in bytes
+    pageCount: { type: Number }, // optional, for PDFs
     reply_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
     is_pinned: { type: Boolean, default: false },
     is_starred: { type: Boolean, default: false },

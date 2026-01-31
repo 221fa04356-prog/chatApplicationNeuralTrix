@@ -7,7 +7,7 @@ const sendEmail = require('../utils/emailService');
 
 // Register
 router.post('/register', async (req, res) => {
-    const { name, email, mobile } = req.body;
+    const { name, email, mobile, designation } = req.body;
 
     if (!name || !email || !mobile) {
         return res.status(400).json({ error: 'All fields are required' });
@@ -30,7 +30,7 @@ router.post('/register', async (req, res) => {
         }
 
         // Insert as pending
-        await User.create({ name, email, mobile, status: 'pending' });
+        await User.create({ name, email, mobile, designation, status: 'pending' });
 
         // Email Admin
         const adminEmail = process.env.ADMIN_EMAIL;
@@ -40,6 +40,7 @@ router.post('/register', async (req, res) => {
                 <h3>New User Registration</h3>
                 <p><strong>Name:</strong> ${name}</p>
                 <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Designation:</strong> ${designation || 'N/A'}</p>
                 <p><strong>Mobile:</strong> ${mobile}</p>
                 <p>Please login to the admin dashboard to approve this user.</p>
             `;
