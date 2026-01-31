@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { UserPlus, Mail, Phone, User } from 'lucide-react';
+import { UserPlus, Mail, Phone, User, Briefcase } from 'lucide-react';
 
 export default function Register() {
-    const [formData, setFormData] = useState({ name: '', email: '', mobile: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', mobile: '', designation: '' });
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
 
@@ -34,7 +34,7 @@ export default function Register() {
         try {
             const res = await axios.post('/api/auth/register', formData);
             setMsg(res.data.message);
-            setFormData({ name: '', email: '', mobile: '' });
+            setFormData({ name: '', email: '', mobile: '', designation: '' });
         } catch (err) {
             setError(err.response?.data?.error || 'Registration failed');
         }
@@ -61,6 +61,21 @@ export default function Register() {
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 placeholder="John Doe"
+                                style={{ paddingLeft: '2.5rem' }}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label>Job Position</label>
+                        <div style={{ position: 'relative' }}>
+                            <Briefcase size={18} style={{ position: 'absolute', top: '12px', left: '10px', color: '#9ca3af' }} />
+                            <input
+                                type="text"
+                                value={formData.designation}
+                                onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                                placeholder="Software Engineer"
                                 style={{ paddingLeft: '2.5rem' }}
                                 required
                             />

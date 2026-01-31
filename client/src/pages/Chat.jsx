@@ -1,19 +1,36 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { Send, LogOut, CheckCheck } from 'lucide-react';
+import {
+    MessageSquare, CircleDashed, Users, MoreVertical, Plus,
+    Search, Settings, Phone, Video, Paperclip, Smile, Mic, Send,
+    ArrowLeft, CheckCheck, User as UserIcon, FileText
+} from 'lucide-react';
 import io from 'socket.io-client';
+import '../styles/Chat.css';
 
+// --- Socket Link ---
 const socket = io('http://localhost:3000');
 
 export default function Chat() {
-    const [users, setUsers] = useState([]); // Now contains { ...user, lastMessage, unreadCount }
+    const [users, setUsers] = useState([]);
     const [selectedUser, setSelectedUser] = useState(null);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const navigate = useNavigate();
     const bottomRef = useRef(null);
+
+    // --- File Upload State ---
+    const [file, setFile] = useState(null);
+    const fileInputRef = useRef(null);
+
+    // --- UI States ---
+    const [view, setView] = useState('chats'); // 'chats' | 'profile' | 'status' etc.
+    const [isProfileOpen, setIsProfileOpen] = useState(false); // Controls the "Profile Drawer" overlay
+    const [showMenu, setShowMenu] = useState(false);
+
+    const [userData, setUserData] = useState(user); // For Profile Display
 
     // 1. Join Room once
     useEffect(() => {
@@ -34,12 +51,10 @@ export default function Chat() {
         socket.on('receive_message', (data) => {
             const senderId = data.sender_id || data.user_id;
 
-            // 1. If chatting with sender, append message and mark as read immediately
             if (selectedUser && senderId === selectedUser._id) {
                 setMessages(prev => [...prev, { ...data, role: 'user', created_at: new Date() }]);
                 markAsRead(senderId);
             } else {
-                // 2. If NOT chatting with sender, update Sidebar info (unread count + last msg)
                 setUsers(prevUsers => prevUsers.map(u => {
                     if (u._id === senderId) {
                         return {
@@ -57,9 +72,7 @@ export default function Chat() {
             }
         });
 
-        // Listen for Read Receipts
         socket.on('messages_read', (data) => {
-            // data: { reader_id, read_at }
             if (selectedUser && data.reader_id === selectedUser._id) {
                 setMessages(prev => prev.map(msg => {
                     const isMyMsg = (msg.sender_id === user.id) || (msg.user_id === user.id);
@@ -75,13 +88,22 @@ export default function Chat() {
             socket.off('receive_message');
             socket.off('messages_read');
         };
-    }, [selectedUser]); // selectedUser is a dependency for the socket listener scope
+    }, [selectedUser]);
 
     const fetchUsers = async () => {
         try {
-            // Pass currentUserId to get metadata
             const res = await axios.get(`/api/chat/users?currentUserId=${user.id}`);
             setUsers(res.data);
+
+            // Restore active chat from localStorage if available
+            const lastActiveChatId = localStorage.getItem('lastActiveChat');
+            if (lastActiveChatId) {
+                const foundUser = res.data.find(u => u._id === lastActiveChatId);
+                if (foundUser) {
+                    setSelectedUser(foundUser);
+                    fetchP2PRequest(foundUser._id);
+                }
+            }
         } catch (err) {
             console.error(err);
         }
@@ -89,15 +111,9 @@ export default function Chat() {
 
     const markAsRead = async (senderId) => {
         try {
-            await axios.post('/api/chat/messages/mark-read', {
-                userId: user.id,
-                senderId: senderId
-            });
-            // Reset local count
+            await axios.post('/api/chat/messages/mark-read', { userId: user.id, senderId: senderId });
             setUsers(prev => prev.map(u => u._id === senderId ? { ...u, unreadCount: 0 } : u));
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) { console.error(err); }
     };
 
     const fetchP2PRequest = async (otherId) => {
@@ -105,68 +121,90 @@ export default function Chat() {
             const res = await axios.get(`/api/chat/p2p/${user.id}/${otherId}`);
             setMessages(res.data);
             setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) { console.error(err); }
     };
 
     const handleUserSelect = (u) => {
         setSelectedUser(u);
+        localStorage.setItem('lastActiveChat', u._id); // Persist chat
         fetchP2PRequest(u._id);
-        // Mark as read when opening chat
-        if (u.unreadCount > 0) {
-            markAsRead(u._id);
+        if (u.unreadCount > 0) markAsRead(u._id);
+    };
+
+    const handleFileSelect = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            setFile(e.target.files[0]);
         }
     };
 
     const handleSend = async (e) => {
-        e.preventDefault();
-        if (!input.trim() || !selectedUser) return;
+        if (e) e.preventDefault();
+        if ((!input.trim() && !file) || !selectedUser) return;
 
+        // Optimistic UI Update (Temporary)
+        const tempId = Date.now();
         const tempMsg = {
-            id: Date.now(),
+            id: tempId,
             sender_id: user.id,
             receiver_id: selectedUser._id,
             role: 'user',
             content: input,
-            type: 'text',
-            created_at: new Date()
+            type: file ? (file.type.startsWith('image/') ? 'image' : 'file') : 'text',
+            file_path: file ? URL.createObjectURL(file) : null, // Local preview
+            fileName: file ? file.name : null,
+            fileSize: file ? file.size : null,
+            pageCount: 1, // Default for optimistic UI
+            created_at: new Date(),
+            is_read: false
         };
 
         setMessages(prev => [...prev, tempMsg]);
         setInput('');
-
-        // Update MY sidebar for THIS user to show the latest message I just sent
-        setUsers(prev => prev.map(u => {
-            if (u._id === selectedUser._id) {
-                return {
-                    ...u,
-                    lastMessage: {
-                        content: input,
-                        created_at: new Date(),
-                        type: 'text'
-                    }
-                };
-            }
-            return u;
-        }));
-
-        socket.emit('send_message', {
-            sender_id: user.id,
-            receiverId: selectedUser._id,
-            content: input,
-            type: 'text',
-            role: 'user'
-        });
+        setFile(null); // Clear file immediately from UI
 
         try {
-            await axios.post('/api/chat/send', {
-                userId: user.id,
-                toUserId: selectedUser._id,
-                content: input
+            const formData = new FormData();
+            formData.append('userId', user.id);
+            formData.append('toUserId', selectedUser._id);
+            formData.append('content', input);
+            if (file) formData.append('file', file);
+
+            // Upload to Server
+            const res = await axios.post('/api/chat/send', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
             });
+
+            const sentMsg = res.data.message;
+
+            // Update Messages to replace temp with real one (optional, or just rely on stable ID if server returns it)
+            // But critically: EMIT SOCKET NOW with the REAL server file_path
+            socket.emit('send_message', {
+                sender_id: user.id,
+                receiverId: selectedUser._id,
+                content: sentMsg.content,
+                type: sentMsg.type,
+                file_path: sentMsg.file_path, // This is what the friend needs!
+                role: 'user'
+            });
+
+            // Update User List Last Message
+            setUsers(prev => prev.map(u => {
+                if (u._id === selectedUser._id) {
+                    return {
+                        ...u,
+                        lastMessage: {
+                            content: sentMsg.type === 'image' ? '📷 Image' : (sentMsg.type === 'file' ? '📄 File' : sentMsg.content),
+                            created_at: new Date(),
+                            type: sentMsg.type
+                        }
+                    };
+                }
+                return u;
+            }));
+
         } catch (err) {
-            console.error("Failed to save msg", err);
+            console.error("Failed to send msg", err);
+            // Ideally remove temp message or show error
         }
     };
 
@@ -176,7 +214,6 @@ export default function Chat() {
         window.location.href = '/';
     };
 
-    // Helper to format time
     const formatTime = (dateStr) => {
         if (!dateStr) return '';
         const date = new Date(dateStr);
@@ -209,73 +246,130 @@ export default function Chat() {
                     <button className="btn-secondary" style={{ padding: '0.4rem' }} onClick={logout} title="Logout">
                         <LogOut size={16} />
                     </button>
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {users.map(u => (
-                        <div
-                            key={u._id}
-                            onClick={() => handleUserSelect(u)}
-                            style={{
-                                padding: '1rem',
-                                borderBottom: '1px solid #f3f4f6',
-                                cursor: 'pointer',
-                                background: selectedUser?._id === u._id ? '#eef2ff' : 'white',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}
-                        >
-                            <div style={{ overflow: 'hidden', flex: 1, marginRight: '0.5rem' }}>
-                                <div style={{ fontWeight: 'bold' }}>{u.name}</div>
-                                <div style={{
-                                    fontSize: '0.8rem',
-                                    color: '#6b7280',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                }}>
-                                    {u.unreadCount > 0 ? (
-                                        <span style={{ fontWeight: 'bold', color: '#374151' }}>
-                                            {u.lastMessage?.type === 'image' ? '📷 Image' : (u.lastMessage?.content || 'No messages')}
-                                        </span>
-                                    ) : (
-                                        <span>{u.lastMessage?.type === 'image' ? '📷 Image' : (u.lastMessage?.content || u.email)}</span>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: '50px' }}>
-                                <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.3rem' }}>
-                                    {formatTime(u.lastMessage?.created_at)}
-                                </div>
-                                {u.unreadCount > 0 && (
-                                    <div style={{
-                                        background: 'var(--primary, #6366f1)',
-                                        color: 'white',
-                                        borderRadius: '50%',
-                                        width: '20px',
-                                        height: '20px',
-                                        fontSize: '0.7rem',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontWeight: 'bold'
-                                    }}>
-                                        {u.unreadCount}
-                                    </div>
-                                )}
-                            </div>
+                    {/* Simple Menu Dropdown */}
+                    {showMenu && (
+                        <div className="wa-menu-dropdown">
+                            <div className="wa-menu-item" onClick={logout}>Log out</div>
+                            <div className="wa-menu-item">New group</div>
+                            <div className="wa-menu-item">Starred messages</div>
+                            <div className="wa-menu-item">Settings</div>
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
 
-            {/* Main Chat Area */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {selectedUser ? (
-                    <>
-                        <div style={{ padding: '1rem', background: 'white', borderBottom: '1px solid #e5e7eb', fontWeight: 'bold' }}>
-                            {selectedUser.name}
+            {/* Search */}
+            <div className="wa-search-section">
+                <div className="wa-search-bar">
+                    <Search size={18} color="#54656f" />
+                    <input type="text" placeholder="Search Neural Chat" className="wa-search-input" />
+                </div>
+            </div>
+
+            {/* Filters */}
+            <div className="wa-filters">
+                <button className="wa-filter-pill active">All</button>
+                <button className="wa-filter-pill">Unread</button>
+                <button className="wa-filter-pill">Favorites</button>
+                <button className="wa-filter-pill">Groups</button>
+            </div>
+
+            {/* Users List */}
+            <div className="wa-user-list">
+                {users.map(u => (
+                    <div
+                        key={u._id}
+                        className={`wa-user-item ${selectedUser?._id === u._id ? 'active' : ''}`}
+                        onClick={() => handleUserSelect(u)}
+                    >
+                        <div className="wa-avatar">
+                            {/* Placeholder/Initial */}
+                            <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#54656f' }}>
+                                {u.name?.charAt(0).toUpperCase()}
+                            </span>
+                        </div>
+                        <div className="wa-chat-info">
+                            <div className="wa-chat-row-top">
+                                <span className="wa-chat-name">{u.name}</span>
+                                <span className="wa-chat-time">{formatTime(u.lastMessage?.created_at)}</span>
+                            </div>
+                            <div className="wa-chat-row-bottom">
+                                <span className="wa-chat-last-msg">
+                                    {u.lastMessage?.type === 'image' ? '📷 Image' : (u.lastMessage?.content || '')}
+                                </span>
+                                {u.unreadCount > 0 && <div className="wa-unread-badge">{u.unreadCount}</div>}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const handleDownload = (url, fileName) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', fileName || 'download');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handlePaste = (e) => {
+        if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+            e.preventDefault();
+            const pastedFile = e.clipboardData.files[0];
+            const allowedExtensions = ['jpg', 'jpeg', 'png', 'doc', 'docx', 'pdf'];
+            const extension = pastedFile.name.split('.').pop().toLowerCase();
+
+            if (allowedExtensions.includes(extension)) {
+                setFile(pastedFile);
+            } else {
+                alert('Only JPG, JPEG, PNG, DOC, DOCX, and PDF files are allowed.');
+            }
+        }
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const droppedFile = e.dataTransfer.files[0];
+            const allowedExtensions = ['jpg', 'jpeg', 'png', 'doc', 'docx', 'pdf'];
+            const extension = droppedFile.name.split('.').pop().toLowerCase();
+
+            if (allowedExtensions.includes(extension)) {
+                setFile(droppedFile);
+            } else {
+                alert('Only JPG, JPEG, PNG, DOC, DOCX, and PDF files are allowed.');
+            }
+        }
+    };
+
+    const renderMainChat = () => (
+        <div
+            className="wa-main-chat"
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
+            {selectedUser ? (
+                <>
+                    {/* Header */}
+                    <div className="wa-chat-header">
+                        <div className="wa-chat-header-user">
+                            <div className="wa-avatar" style={{ width: 40, height: 40, marginRight: 10 }}>
+                                <span style={{ fontSize: 16 }}>{selectedUser.name?.charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: 16 }}>{selectedUser.name}</span>
+                                <span style={{ fontSize: 12, color: '#667781' }}>click here for contact info</span>
+                            </div>
                         </div>
                         <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -335,27 +429,54 @@ export default function Chat() {
                                 <div ref={bottomRef} />
                             </div>
                         </div>
-                        <div style={{ padding: '1rem', background: 'white', borderTop: '1px solid #e5e7eb' }}>
-                            <form onSubmit={handleSend} style={{ display: 'flex', gap: '1rem' }}>
-                                <input
-                                    type="text"
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    placeholder="Type a message..."
-                                    style={{ flex: 1, padding: '0.75rem', borderRadius: '2rem', border: '1px solid #e5e7eb' }}
-                                />
-                                <button type="submit" className="btn-primary" style={{ borderRadius: '50%', width: '48px', height: '48px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Send size={20} />
+
+                        <div className="wa-input-pill">
+                            {/* File Preview Badge inside pill */}
+                            {file && (
+                                <div style={{ background: '#e9edef', padding: '2px 8px', borderRadius: 4, marginRight: 5, fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                                    {file.name.substring(0, 15)}...
+                                    <button onClick={() => setFile(null)} style={{ border: 'none', background: 'transparent', marginLeft: 4, cursor: 'pointer', fontWeight: 'bold' }}>×</button>
+                                </div>
+                            )}
+
+                            <textarea
+                                className="wa-input-box"
+                                placeholder="Type a message"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onPaste={handlePaste}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend(e);
+                                    }
+                                }}
+                                rows={1}
+                                style={{ resize: 'none', overflowY: 'auto' }}
+                            />
+                            {(input.trim() || file) && (
+                                <button onClick={handleSend} className="wa-nav-icon-btn wa-send-btn">
+                                    <Send size={20} color="white" />
                                 </button>
-                            </form>
+                            )}
                         </div>
-                    </>
-                ) : (
-                    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#9ca3af' }}>
-                        Select a user to start chatting
                     </div>
-                )}
-            </div>
+                </>
+            ) : (
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', color: '#41525d' }}>
+                    <h2>Neural Chat</h2>
+                    <p style={{ fontSize: 14, marginTop: 10 }}>Send and receive messages without keeping your phone online.</p>
+                </div>
+            )}
+        </div>
+    );
+
+    return (
+        <div className="wa-app-container">
+            {renderLeftSidebar()}
+            {renderLeftPanel()}
+            {/* If file is selected, show Preview Overlay INSTEAD of Main Chat (or on top) */}
+            {file ? renderFilePreview() : renderMainChat()}
         </div>
     );
 }
